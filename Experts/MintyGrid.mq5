@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens Ltd."
 #property link      "chrishemmens@hotmail.com"
-#property version   "2.1"
+#property version   "2.2"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -48,18 +48,19 @@
 #include <Controls/Label.mqh>
 
 //--- Risk settings parameters
-input double   minInitialRiskFactor=0.01; // Initial risk factor, percentage of balance by minimum lot
-input double   maxIntialRiskFactor=0.1; // Max initial risk factor, percentage of balance by minimum lot
-input double   profitFactor=0.5; // Profit factor, percentage of balance
+input double   minInitialRiskFactor=0.1; // Initial risk factor, percentage of balance by minimum lot
+input double   maxIntialRiskFactor=1; // Max initial risk factor, percentage of balance by minimum lot
+input double   profitFactor=1; // Profit factor, percentage of balance
 //--- Martingale grid settings
 input double   lotMultiplier=1.5; // Grid step martingale lot multiplier
 input double   lotDeviser=3; // Grid reverse martingale lot deviser
-input double   gridStep=0.3; // Grid step price movement percentage
+input double   gridStep=0.33333; // Grid step price movement percentage
+input int   maxGridSteps=10; // Maximum amount of positions per direction
 //--- trade settings
 input bool     buy = true;
 input bool     sell = true;
 //--- Symbol settings
-input string   currencyPairs = "EURUSD,EURGBP,GBPUSD"; // Symbols to trade comma seperated
+input string   currencyPairs = "EURUSD"; // Symbols to trade comma seperated
 //--- Expert Advisor settings
 input int      magicNumber = 901239; // Magic
 
@@ -72,7 +73,7 @@ CLabel label;
 string symbols[];
 int totalSymbols = 0;
 ulong positionsToClose[];
-
+bool enableTrade = true;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -99,7 +100,17 @@ int OnTesterInit(void)
 
    for(int i=0; i<totalSymbols; i++)
      {
-      CheckLoadHistory(symbols[i], _Period, 100000);
+      double lotStep = SymbolInfoDouble(symbols[i], SYMBOL_VOLUME_STEP);
+
+      if(lotStep != 0.01)
+        {
+         Print("Unsupported lotstep " + DoubleToString(lotStep) + " trade disabeled");
+         enableTrade = true;
+        }
+      else
+        {
+         CheckLoadHistory(symbols[i], _Period, 100000);
+        }
      }
    return(INIT_SUCCEEDED);
   }
@@ -133,9 +144,12 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   for(int i = 0; i < totalSymbols; i++)
+   if(enableTrade)
      {
-      Tick(symbols[i]);
+      for(int i = 0; i < totalSymbols; i++)
+        {
+         Tick(symbols[i]);
+        }
      }
   }
 
@@ -156,6 +170,7 @@ void Tick(string symbol)
    if(lotMax==0)
       lotMax=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX);
    double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+
    int lotDecimals = lotStep > 0.09 ? lotStep > 0.9 ? 0 : 1 : 2;
    double initialLots = NormalizeDouble(balance/totalSymbols/(100)*minInitialRiskFactor*lotMin,lotDecimals);
    double maxInitialLot = NormalizeDouble(balance/totalSymbols/(100)*maxIntialRiskFactor*lotMin,lotDecimals);
@@ -272,7 +287,7 @@ void Tick(string symbol)
         }
      }
 
-   if(buyProfit+sellProfit > targetProfit && (lowestSellPrice > highestBuyPrice))
+   if(buyProfit+sellProfit > (targetProfit) && (lowestSellPrice > highestBuyPrice))
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
@@ -285,7 +300,7 @@ void Tick(string symbol)
      }
 
 
-   if(lowestBuyPrice-(lowestBuyPrice/100*gridStep) >= ask && buyLots != 0)
+   if(lowestBuyPrice-(lowestBuyPrice/100*gridStep) >= ask && buyLots != 0 && buyPositions < maxGridSteps)
      {
       double volume = buyPositions*initialLots*lotMultiplier > highestBuyLots*lotMultiplier ? buyPositions*initialLots*lotMultiplier : highestBuyLots*lotMultiplier;
       volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
@@ -298,7 +313,7 @@ void Tick(string symbol)
 
      }
 
-   if(highestSellPrice+(highestSellPrice/100*gridStep) <= bid && sellLots != 0)
+   if(highestSellPrice+(highestSellPrice/100*gridStep) <= bid && sellLots != 0 && sellPositions < maxGridSteps)
      {
       double volume = sellPositions*initialLots*lotMultiplier > highestSellLots*lotMultiplier ? sellPositions*initialLots*lotMultiplier : highestSellLots*lotMultiplier;
       volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
