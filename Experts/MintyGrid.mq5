@@ -40,22 +40,23 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens Ltd."
 #property link      "chrishemmens@hotmail.com"
-#property version   "2.2"
+#property version   "2.3"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
-#include <Controls/Panel.mqh>
-#include <Controls/Label.mqh>
+
+enum RiskBase {Balance, Equity};
 
 //--- Risk settings parameters
-input double   minInitialRiskFactor=0.1; // Initial risk factor, percentage of balance by minimum lot
-input double   maxIntialRiskFactor=1; // Max initial risk factor, percentage of balance by minimum lot
-input double   profitFactor=1; // Profit factor, percentage of balance
+input double   minInitialRiskFactor=0.015; // Initial risk factor, percentage of risk base by minimum lot
+input double   profitFactor=1; // Profit factor, percentage of risk base
+input RiskBase riskBase=Equity; // Factor to base risk on
 //--- Martingale grid settings
 input double   lotMultiplier=1.5; // Grid step martingale lot multiplier
 input double   lotDeviser=3; // Grid reverse martingale lot deviser
-input double   gridStep=0.33333; // Grid step price movement percentage
-input int   maxGridSteps=10; // Maximum amount of positions per direction
+input double   gridStep=0.3; // Grid step price movement percentage
+input double   gridStepMultiplier=0.3; // Grid step multiplier
+input int      maxGridSteps=10; // Maximum amount of grid steps
 //--- trade settings
 input bool     buy = true;
 input bool     sell = true;
@@ -67,8 +68,6 @@ input int      magicNumber = 901239; // Magic
 CTrade trade;
 CPositionInfo position;
 COrderInfo order;
-CPanel panel;
-CLabel label;
 
 string symbols[];
 int totalSymbols = 0;
@@ -162,6 +161,7 @@ void Tick(string symbol)
    double ask = SymbolInfoDouble(symbol,SYMBOL_ASK);
    double bid = SymbolInfoDouble(symbol,SYMBOL_BID);
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
 
    double profit = AccountInfoDouble(ACCOUNT_PROFIT);
 
@@ -172,9 +172,19 @@ void Tick(string symbol)
    double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
 
    int lotDecimals = lotStep > 0.09 ? lotStep > 0.9 ? 0 : 1 : 2;
-   double initialLots = NormalizeDouble(balance/totalSymbols/(100)*minInitialRiskFactor*lotMin,lotDecimals);
-   double maxInitialLot = NormalizeDouble(balance/totalSymbols/(100)*maxIntialRiskFactor*lotMin,lotDecimals);
-   double targetProfit = balance/totalSymbols/100*profitFactor;
+   
+   double initialLots = 0;
+   double targetProfit = 0;
+   
+   if(riskBase == Balance) {
+      initialLots = NormalizeDouble((balance/100)*minInitialRiskFactor*lotStep,lotDecimals);
+      targetProfit = balance/100*profitFactor;
+   }
+   
+   if(riskBase == Equity) {
+      initialLots = NormalizeDouble((equity/100)*minInitialRiskFactor*lotStep,lotDecimals);
+      targetProfit = equity/100*profitFactor;
+   }
 
    int buyPositions = 0;
    int sellPositions = 0;
@@ -263,6 +273,7 @@ void Tick(string symbol)
 
      }
 
+
    if(sellProfit > targetProfit)
      {
       for(int i = 0; i < PositionsTotal(); i++)
@@ -287,23 +298,10 @@ void Tick(string symbol)
         }
      }
 
-   if(buyProfit+sellProfit > (targetProfit) && (lowestSellPrice > highestBuyPrice))
-     {
-      for(int i = 0; i < PositionsTotal(); i++)
-        {
-         position.SelectByIndex(i);
-         if(position.Symbol() == symbol && position.Magic() == magicNumber)
-           {
-            closePosition(position.Ticket());
-           }
-        }
-     }
-
-
-   if(lowestBuyPrice-(lowestBuyPrice/100*gridStep) >= ask && buyLots != 0 && buyPositions < maxGridSteps)
+   if(lowestBuyPrice-((lowestBuyPrice/100*gridStep)*((buyPositions*gridStepMultiplier)+1)) >= ask && buyLots != 0 && buyPositions < maxGridSteps)
      {
       double volume = buyPositions*initialLots*lotMultiplier > highestBuyLots*lotMultiplier ? buyPositions*initialLots*lotMultiplier : highestBuyLots*lotMultiplier;
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && totalOverallLots+volume < lotMax)
@@ -313,10 +311,10 @@ void Tick(string symbol)
 
      }
 
-   if(highestSellPrice+(highestSellPrice/100*gridStep) <= bid && sellLots != 0 && sellPositions < maxGridSteps)
+   if(highestSellPrice+((highestSellPrice/100*gridStep)*((sellPositions*gridStepMultiplier)+1)) <= bid && sellLots != 0 && sellPositions < maxGridSteps)
      {
       double volume = sellPositions*initialLots*lotMultiplier > highestSellLots*lotMultiplier ? sellPositions*initialLots*lotMultiplier : highestSellLots*lotMultiplier;
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && totalOverallLots+volume < lotMax)
@@ -325,12 +323,11 @@ void Tick(string symbol)
         }
      }
 
-   if(buyPositions == 0 && buy)
+   if((buyPositions == 0) && (sellPositions == 0 || (ask < highestSellPrice && sell)) && buy)
      {
       double highestLot = sellPositions == 0 ? 0 : sellLots/sellPositions/lotDeviser;
       double volume = highestLot < initialLots ? initialLots : highestLot;
-      volume = volume > maxInitialLot ? maxInitialLot : volume;
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && totalOverallLots+volume < lotMax)
         {
@@ -338,12 +335,11 @@ void Tick(string symbol)
         }
      }
 
-   if((buyPositions > 0 || !buy) && sellPositions == 0 && (bid > lowestBuyPrice) && sell)
+   if((sellPositions == 0) && (buyPositions == 0 || (bid > lowestBuyPrice && buy)) && sell)
      {
       double highestLot = buyPositions == 0 ? 0 : buyLots/buyPositions/lotDeviser;
       double volume = highestLot < initialLots ? initialLots : highestLot;
-      volume = volume > maxInitialLot ? maxInitialLot : volume;
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && totalOverallLots+volume < lotMax)
