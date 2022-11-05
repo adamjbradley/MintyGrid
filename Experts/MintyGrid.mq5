@@ -49,13 +49,13 @@ enum RiskBase {Balance, Equity};
 
 //--- Risk settings parameters
 input double   minInitialRiskFactor=0.015; // Initial risk factor, percentage of risk base by minimum lot
-input double   profitFactor=1; // Profit factor, percentage of risk base
+input double   profitFactor=0.5; // Profit factor, percentage of risk base
 input RiskBase riskBase=Equity; // Factor to base risk on
 //--- Martingale grid settings
 input double   lotMultiplier=1.5; // Grid step martingale lot multiplier
 input double   lotDeviser=3; // Grid reverse martingale lot deviser
 input double   gridStep=0.3; // Grid step price movement percentage
-input double   gridStepMultiplier=0.3; // Grid step multiplier
+input double   gridStepMultiplier=0.3; // Grid distance step multiplier
 input int      maxGridSteps=10; // Maximum amount of grid steps
 //--- trade settings
 input bool     buy = true;
@@ -99,17 +99,10 @@ int OnTesterInit(void)
 
    for(int i=0; i<totalSymbols; i++)
      {
-      double lotStep = SymbolInfoDouble(symbols[i], SYMBOL_VOLUME_STEP);
 
-      if(lotStep != 0.01)
-        {
-         Print("Unsupported lotstep " + DoubleToString(lotStep) + " trade disabeled");
-         enableTrade = true;
-        }
-      else
-        {
-         CheckLoadHistory(symbols[i], _Period, 100000);
-        }
+   CheckLoadHistory(symbols[i], _Period, 100000);
+
+
      }
    return(INIT_SUCCEEDED);
   }
@@ -172,19 +165,21 @@ void Tick(string symbol)
    double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
 
    int lotDecimals = lotStep > 0.09 ? lotStep > 0.9 ? 0 : 1 : 2;
-   
+
    double initialLots = 0;
    double targetProfit = 0;
-   
-   if(riskBase == Balance) {
+
+   if(riskBase == Balance)
+     {
       initialLots = NormalizeDouble((balance/100)*minInitialRiskFactor*lotStep,lotDecimals);
       targetProfit = balance/100*profitFactor;
-   }
-   
-   if(riskBase == Equity) {
+     }
+
+   if(riskBase == Equity)
+     {
       initialLots = NormalizeDouble((equity/100)*minInitialRiskFactor*lotStep,lotDecimals);
       targetProfit = equity/100*profitFactor;
-   }
+     }
 
    int buyPositions = 0;
    int sellPositions = 0;
@@ -298,7 +293,19 @@ void Tick(string symbol)
         }
      }
 
-   if(lowestBuyPrice-((lowestBuyPrice/100*gridStep)*((buyPositions*gridStepMultiplier)+1)) >= ask && buyLots != 0 && buyPositions < maxGridSteps)
+   if(buyProfit+sellProfit > targetProfit && (lowestSellPrice > highestBuyPrice))
+     {
+      for(int i = 0; i < PositionsTotal(); i++)
+        {
+         position.SelectByIndex(i);
+         if(position.Symbol() == symbol && position.Magic() == magicNumber)
+           {
+            closePosition(position.Ticket());
+           }
+        }
+     }
+     
+   if(lowestBuyPrice-((lowestBuyPrice/100*gridStep)*((buyPositions*gridStepMultiplier)+1)) >= ask && buyLots != 0 && buyPositions < maxGridSteps && !IsNetting())
      {
       double volume = buyPositions*initialLots*lotMultiplier > highestBuyLots*lotMultiplier ? buyPositions*initialLots*lotMultiplier : highestBuyLots*lotMultiplier;
       //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
@@ -311,13 +318,13 @@ void Tick(string symbol)
 
      }
 
-   if(highestSellPrice+((highestSellPrice/100*gridStep)*((sellPositions*gridStepMultiplier)+1)) <= bid && sellLots != 0 && sellPositions < maxGridSteps)
+   if(highestSellPrice+((highestSellPrice/100*gridStep)*((sellPositions*gridStepMultiplier)+1)) <= bid && sellLots != 0 && sellPositions < maxGridSteps && !IsNetting())
      {
       double volume = sellPositions*initialLots*lotMultiplier > highestSellLots*lotMultiplier ? sellPositions*initialLots*lotMultiplier : highestSellLots*lotMultiplier;
       //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
-      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && totalOverallLots+volume < lotMax)
+      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbol,volume) && totalOverallLots+volume < lotMax)
         {
          trade.Sell(volume,symbol,0,0,0,"MintyGrid Sell " + symbol + " step " + IntegerToString(sellPositions + 1));
         }
@@ -329,7 +336,12 @@ void Tick(string symbol)
       double volume = highestLot < initialLots ? initialLots : highestLot;
       //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
-      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && totalOverallLots+volume < lotMax)
+      
+      if(IsNetting()) {
+         volume = lotMin;
+      }
+      
+      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbol,volume) && totalOverallLots+volume < lotMax)
         {
          trade.Buy(volume,symbol,0,0,0,"MintyGrid Buy " + symbol + " step " + IntegerToString(buyPositions + 1));
         }
@@ -341,6 +353,10 @@ void Tick(string symbol)
       double volume = highestLot < initialLots ? initialLots : highestLot;
       //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
+
+      if(IsNetting()) {
+         volume = lotMin;
+      }
 
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && totalOverallLots+volume < lotMax)
         {
@@ -431,4 +447,39 @@ void closeOpenPositions()
   }
 
 //+------------------------------------------------------------------+
+//| Check the correctness of the order volume                        |
 //+------------------------------------------------------------------+
+bool CheckVolumeValue(string symbol, double volume)
+  {
+//--- minimal allowed volume for trade operations
+   double min_volume=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MIN);
+   if(volume<min_volume)
+     {
+      return(false);
+     }
+
+//--- maximal allowed volume of trade operations
+   double max_volume=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX);
+   if(volume>max_volume)
+     {
+      return(false);
+     }
+
+//--- get minimal step of volume changing
+   double volume_step=SymbolInfoDouble(symbol,SYMBOL_VOLUME_STEP);
+
+   int ratio=(int)MathRound(volume/volume_step);
+   if(MathAbs(ratio*volume_step-volume)>0.0000001)
+     {
+      return(false);
+     }
+
+   return true;
+
+  }
+
+bool IsNetting()
+  {
+   ENUM_ACCOUNT_MARGIN_MODE res = (ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   return(res==ACCOUNT_MARGIN_MODE_RETAIL_NETTING);
+  }
