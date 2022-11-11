@@ -1,7 +1,11 @@
 # MintyGrid
-MintyGrid is a simple EA that does not use indicators or market averages to trade. MintyGrid always buys and/or sells. On winning trades MintyGrid will take profit based configuration. On loosing trades MintyGrid uses a grid strategy to place resistance points using a martingale/reverse-martingale strategy to be prepared for when the market swings in the opposite direction. MintyGird can be configured to run on many currency pairs simultaneously.
+MintyGrid is a simple EA that does not use indicators nor market averages to trade. MintyGrid always buys and/or sells. On winning trades MintyGrid will take profit based on configuration. On losing trades MintyGrid uses a grid strategy to place resistance points using a martingale/reverse-martingale strategy to be prepared for when the market swings in the opposite direction. MintyGrid can be configured to run on many currency pairs simultaneously and will work as long as the pairs are similar in price.
 
-Recommended usage is on a cent account with at least 300 EUR (30000 Euro Cents) and high leverage. Or 30000 EUR on a standard account if you want to take a big risk.
+Recommended usage is on a cent account with at least 300 EUR (30000 Euro Cents) and high leverage. Or 30000 EUR on a standard account if you want to take a big risk. It is not recommended to run MintyGrid alongside other EAs. If you wish to run it is advised to run MintyGrid on its own trading account with no more than 10% of your assets, use only assets you are prepared to possibly lose. MintyGrid is aggressive and effective but risky. MintyGrid does not use stop losses, your entire account balance is at risk.
+
+By default MintyGrid runs on EURUSD, timeframe is irrelevant.
+
+MintyGrid does not work well on netting accounts. MintyGrid works best on forex brokers with a 0.01 lot size and lot step.
 
 Always backtest before using. It is not recommended to run MintyGrid alongside other EAs.
 
