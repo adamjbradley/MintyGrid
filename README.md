@@ -36,7 +36,7 @@ accountEquity/100*minInitialRiskFactor*minimumLotSize
 ```
 
 Example where minimumLotSize = 0.01:
-| accountEquity | minInitialRiskFactor | forumaa | initial lot size |
+| accountEquity | minInitialRiskFactor | formula | initial lot size |
 |---|---|---|---|
 | 10000 | 0.01 | 10000 / 100 * 0.01*0.01 | 0.01 |
 | 20000 | 0.01  | 20000 / 100 * 0.01*0.01 | 0.02 |
