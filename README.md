@@ -50,6 +50,36 @@ Example where minimumLotSize = 0.01:
 | 40000 | 0.02 | 40000 / 100 * 0.02 * 0.01 | 0.08 |
 | 50000 | 0.02 | 50000 / 100 * 0.02 * 0.01 | 0.10 |
 
+Lots get multiplied per gird step by the grid step multiplier
+
+Example the market is in a major downwars swing and MintyGrid has 8 buy positions open.
+
+Formula:
+```
+double volume = buyPositions*initialLots*lotMultiplier > highestBuyLots*lotMultiplier ? buyPositions*initialLots*lotMultiplier : highestBuyLots*lotMultiplier;
+```
+
+| gridStep | initialLots | lotMultiplier | volume |
+|---|---|---|---|
+| step 1 | 0.01 | 2 | 0.01 |
+| step 2 | 0.01 | 2 | 0.02 |
+| step 3 | 0.01 | 2 | 0.04 |
+| step 4 | 0.01 | 2 | 0.08 |
+| step 5 | 0.01 | 2 | 0.16 |
+| step 6 | 0.01 | 2 | 0.32 |
+| step 7 | 0.01 | 2 | 0.64 |
+| step 8 | 0.01 | 2 | 1.28 |
+
+| gridStep | initialLots | lotMultiplier | volume |
+|---|---|---|---|
+| step 1 | 0.02 | 1.5 | 0.02 |
+| step 2 | 0.02 | 1.5 | 0.03 |
+| step 3 | 0.02 | 1.5 | 0.05 |
+| step 4 | 0.02 | 1.5 | 0.08 |
+| step 5 | 0.02 | 1.5 | 0.12 |
+| step 6 | 0.02 | 1.5 | 0.18 |
+| step 7 | 0.02 | 1.5 | 0.27 |
+| step 8 | 0.02 | 1.5 | 0.41 |
 
 # DISCLAIMER
 Use at own risk, this strategy is effective but not foolproof.
