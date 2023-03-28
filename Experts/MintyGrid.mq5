@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens Ltd."
 #property link      "chrishemmens@hotmail.com"
-#property version   "2.3"
+#property version   "2.4"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -48,14 +48,15 @@
 enum RiskBase {Balance, Equity};
 
 //--- Risk settings parameters
+input RiskBase riskBase=Equity; // Factor to base risk on
 input double   minInitialRiskFactor=0.015; // Initial risk factor, percentage of risk base by minimum lot
 input double   profitFactor=0.5; // Profit factor, percentage of risk base
-input RiskBase riskBase=Equity; // Factor to base risk on
 //--- Martingale grid settings
 input double   lotMultiplier=1.5; // Grid step martingale lot multiplier
 input double   lotDeviser=3; // Grid reverse martingale lot deviser
 input double   gridStep=0.3; // Grid step price movement percentage
-input double   gridStepMultiplier=0.3; // Grid distance step multiplier
+input double   gridStepMultiplier=0.3; // Grid step distance multiplier
+input double   gridStepProfitMultiplier=0.3; // Grid step profit multiplier
 input int      maxGridSteps=10; // Maximum amount of grid steps
 //--- trade settings
 input bool     buy = true;
@@ -183,6 +184,7 @@ void Tick(string symbol)
 
    int buyPositions = 0;
    int sellPositions = 0;
+   int positions = 0;
 
    double buyProfit = 0;
    double sellProfit = 0;
@@ -208,11 +210,13 @@ void Tick(string symbol)
 
    for(int i = 0; i < PositionsTotal(); i++)
      {
+     
       position.SelectByIndex(i);
       symbolProfit = position.Profit();
       if(position.PositionType() == POSITION_TYPE_BUY && position.Symbol() == symbol && position.Magic() == magicNumber)
         {
          buyPositions++;
+         positions++;
          buyLots += position.Volume();
          buyProfit += position.Profit();
          if(lowestBuyPrice == 0 || position.PriceOpen() < lowestBuyPrice)
@@ -228,28 +232,10 @@ void Tick(string symbol)
             highestBuyLots = position.Volume();
            }
         }
-      if(position.PositionType() == POSITION_TYPE_BUY && position.Magic() == magicNumber)
-        {
-         if(highestOverallBuyLots == 0 || position.Volume() > highestOverallBuyLots)
-           {
-            highestOverallBuyLots = position.Volume();
-            totalOverallBuyLots += position.Volume();
-            totalOverallLots += position.Volume();
-           }
-        }
-      if(position.PositionType() == POSITION_TYPE_SELL && position.Magic() == magicNumber)
-        {
-         if(highestOverallSellLots == 0 || position.Volume() > highestOverallSellLots)
-           {
-            highestOverallSellLots = position.Volume();
-            totalOverallSellLots += position.Volume();
-            totalOverallLots += position.Volume();
-           }
-
-        }
       if(position.PositionType() == POSITION_TYPE_SELL && position.Symbol() == symbol && position.Magic() == magicNumber)
         {
          sellPositions++;
+         positions++;
          sellLots += position.Volume();
          sellProfit += position.Profit();
          if(lowestSellPrice == 0 || position.PriceOpen() < lowestSellPrice)
@@ -269,7 +255,11 @@ void Tick(string symbol)
      }
 
 
-   if(sellProfit > targetProfit)
+   double targetSellProfit = targetProfit*((positions)*gridStepProfitMultiplier);
+   double targetBuyProfit = targetProfit*((positions)*gridStepProfitMultiplier);
+   double targetOverallProfit = targetProfit*(positions*gridStepProfitMultiplier);
+
+   if(sellProfit > targetSellProfit)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
@@ -281,7 +271,7 @@ void Tick(string symbol)
         }
      }
 
-   if(buyProfit > targetProfit)
+   if(buyProfit > targetBuyProfit)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
@@ -293,7 +283,7 @@ void Tick(string symbol)
         }
      }
 
-   if(buyProfit+sellProfit > targetProfit && (lowestSellPrice > highestBuyPrice))
+   if(buyProfit+sellProfit > targetOverallProfit && (lowestSellPrice > highestBuyPrice))
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
