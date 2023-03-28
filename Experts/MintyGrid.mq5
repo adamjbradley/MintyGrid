@@ -49,14 +49,14 @@ enum RiskBase {Balance, Equity};
 
 //--- Risk settings parameters
 input RiskBase riskBase=Equity; // Factor to base risk on
-input double   minInitialRiskFactor=0.015; // Initial risk factor, percentage of risk base by minimum lot
-input double   profitFactor=0.5; // Profit factor, percentage of risk base
+input double   minInitialRiskFactor=0.01; // Initial risk factor, percentage of risk base by minimum lot
+input double   profitFactor=0.05; // Profit factor, percentage of risk base
 //--- Martingale grid settings
 input double   lotMultiplier=1.5; // Grid step martingale lot multiplier
 input double   lotDeviser=3; // Grid reverse martingale lot deviser
-input double   gridStep=0.3; // Grid step price movement percentage
-input double   gridStepMultiplier=0.3; // Grid step distance multiplier
-input double   gridStepProfitMultiplier=0.3; // Grid step profit multiplier
+input double   gridStep=0.01; // Grid step price movement percentage
+input double   gridStepMultiplier=10; // Grid step distance multiplier
+input double   gridStepProfitMultiplier=2; // Grid step profit multiplier
 input int      maxGridSteps=10; // Maximum amount of grid steps
 //--- trade settings
 input bool     buy = true;
@@ -255,8 +255,8 @@ void Tick(string symbol)
      }
 
 
-   double targetSellProfit = targetProfit*((positions)*gridStepProfitMultiplier);
-   double targetBuyProfit = targetProfit*((positions)*gridStepProfitMultiplier);
+   double targetSellProfit = targetProfit*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier;
+   double targetBuyProfit = targetProfit*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier;
    double targetOverallProfit = targetProfit*(positions*gridStepProfitMultiplier);
 
    if(sellProfit > targetSellProfit)
