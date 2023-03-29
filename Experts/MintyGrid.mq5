@@ -46,24 +46,31 @@
 #include <Trade/Trade.mqh>
 
 enum RiskBase {Balance, Equity};
+enum RiskType {Fixed, Dynamic};
 
 //--- Risk settings parameters
+input group "Risk settings";
 input RiskBase riskBase=Equity; // Factor to base risk on
-input double   minInitialRiskFactor=0.01; // Initial risk factor, percentage of risk base by minimum lot
-input double   profitFactor=0.05; // Profit factor, percentage of risk base
-//--- Martingale grid settings
-input double   lotMultiplier=1.5; // Grid step martingale lot multiplier
-input double   lotDeviser=3; // Grid reverse martingale lot deviser
-input double   gridStep=0.01; // Grid step price movement percentage
-input double   gridStepMultiplier=10; // Grid step distance multiplier
-input double   gridStepProfitMultiplier=2; // Grid step profit multiplier
-input int      maxGridSteps=10; // Maximum amount of grid steps
-//--- trade settings
-input bool     buy = true;
-input bool     sell = true;
-//--- Symbol settings
+input RiskType riskType=Fixed; // Whether to use fixed or dynamic risk
+input double   riskFactor=0.01; // Fixed lot size or percentage of risk base multiplied by min lot
+input double   profitFactor=1; // Fixed profit in deposit currency or percentage of risk base
+
+input group "Martingale grid settings";
+input double   lotMultiplier=1.5; // Grid step martingale lot multiplier (0 to disable)
+input double   lotDeviser=0; // Grid reverse martingale lot deviser (0 to disable)
+input double   gridStep=0.03; // Grid step price movement percentage
+input double   gridStepMultiplier=1; // Grid step distance multiplier
+input double   gridStepProfitMultiplier=1000; // Grid step profit multiplier
+input int      maxGridSteps=15; // Maximum amount of grid steps
+
+input group "Trade settings";
+input bool     buy = true; // Whether to enable buy trades
+input bool     sell = true; // Whether to enable sell trades
+
+input group "Symbol settings";
 input string   currencyPairs = "EURUSD"; // Symbols to trade comma seperated
-//--- Expert Advisor settings
+
+input group "Expert Advisor settings";
 input int      magicNumber = 901239; // Magic
 
 CTrade trade;
@@ -101,7 +108,7 @@ int OnTesterInit(void)
    for(int i=0; i<totalSymbols; i++)
      {
 
-   CheckLoadHistory(symbols[i], _Period, 100000);
+      CheckLoadHistory(symbols[i], _Period, 100000);
 
 
      }
@@ -165,21 +172,27 @@ void Tick(string symbol)
       lotMax=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX);
    double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
 
-   int lotDecimals = lotStep > 0.09 ? lotStep > 0.9 ? 0 : 1 : 2;
+   int lotDecimals = lotStep < 0.01 ? 3 : lotStep > 0.09 ? lotStep > 0.9 ? 0 : 1 : 2;
 
    double initialLots = 0;
    double targetProfit = 0;
 
    if(riskBase == Balance)
      {
-      initialLots = NormalizeDouble((balance/100)*minInitialRiskFactor*lotStep,lotDecimals);
+      initialLots = NormalizeDouble((balance/100)*riskFactor*lotStep,lotDecimals);
       targetProfit = balance/100*profitFactor;
      }
 
    if(riskBase == Equity)
      {
-      initialLots = NormalizeDouble((equity/100)*minInitialRiskFactor*lotStep,lotDecimals);
+      initialLots = NormalizeDouble((equity/100)*riskFactor*lotStep,lotDecimals);
       targetProfit = equity/100*profitFactor;
+     }
+
+   if(riskType == Fixed)
+     {
+      initialLots = riskFactor;
+      targetProfit = profitFactor;
      }
 
    int buyPositions = 0;
@@ -193,13 +206,11 @@ void Tick(string symbol)
    double highestBuyPrice = 0;
    double highestBuyLots = 0;
    double highestOverallBuyLots = 0;
-   double totalOverallBuyLots = 0;
 
    double lowestSellPrice = 0;
    double highestSellPrice = 0;
    double highestSellLots = 0;
    double highestOverallSellLots = 0;
-   double totalOverallSellLots = 0;
 
    double totalOverallLots = 0;
 
@@ -210,56 +221,61 @@ void Tick(string symbol)
 
    for(int i = 0; i < PositionsTotal(); i++)
      {
-     
       position.SelectByIndex(i);
-      symbolProfit = position.Profit();
-      if(position.PositionType() == POSITION_TYPE_BUY && position.Symbol() == symbol && position.Magic() == magicNumber)
+      if(position.Symbol() == symbol && position.Magic() == magicNumber)
         {
-         buyPositions++;
-         positions++;
-         buyLots += position.Volume();
-         buyProfit += position.Profit();
-         if(lowestBuyPrice == 0 || position.PriceOpen() < lowestBuyPrice)
-           {
-            lowestBuyPrice = position.PriceOpen();
-           }
-         if(highestBuyPrice == 0 || position.PriceOpen() > highestBuyPrice)
-           {
-            highestBuyPrice = position.PriceOpen();
-           }
-         if(highestBuyLots == 0 || position.Volume() > highestBuyLots)
-           {
-            highestBuyLots = position.Volume();
-           }
-        }
-      if(position.PositionType() == POSITION_TYPE_SELL && position.Symbol() == symbol && position.Magic() == magicNumber)
-        {
-         sellPositions++;
-         positions++;
-         sellLots += position.Volume();
-         sellProfit += position.Profit();
-         if(lowestSellPrice == 0 || position.PriceOpen() < lowestSellPrice)
-           {
-            lowestSellPrice = position.PriceOpen();
-           }
-         if(highestSellPrice == 0 || position.PriceOpen() > highestSellPrice)
-           {
-            highestSellPrice = position.PriceOpen();
-           }
-         if(highestSellLots == 0 || position.Volume() > highestSellLots)
-           {
-            highestSellLots = position.Volume();
-           }
-        }
 
+         symbolProfit = position.Profit();
+         totalOverallLots += position.Volume();
+
+         if(position.PositionType() == POSITION_TYPE_BUY)
+           {
+            buyPositions++;
+            positions++;
+            buyLots += position.Volume();
+            buyProfit += position.Profit();
+            if(lowestBuyPrice == 0 || position.PriceOpen() < lowestBuyPrice)
+              {
+               lowestBuyPrice = position.PriceOpen();
+              }
+            if(highestBuyPrice == 0 || position.PriceOpen() > highestBuyPrice)
+              {
+               highestBuyPrice = position.PriceOpen();
+              }
+            if(highestBuyLots == 0 || position.Volume() > highestBuyLots)
+              {
+               highestBuyLots = position.Volume();
+              }
+           }
+           
+         if(position.PositionType() == POSITION_TYPE_SELL)
+           {
+            sellPositions++;
+            positions++;
+            sellLots += position.Volume();
+            sellProfit += position.Profit();
+            if(lowestSellPrice == 0 || position.PriceOpen() < lowestSellPrice)
+              {
+               lowestSellPrice = position.PriceOpen();
+              }
+            if(highestSellPrice == 0 || position.PriceOpen() > highestSellPrice)
+              {
+               highestSellPrice = position.PriceOpen();
+              }
+            if(highestSellLots == 0 || position.Volume() > highestSellLots)
+              {
+               highestSellLots = position.Volume();
+              }
+           }
+        }
      }
 
 
-   double targetSellProfit = targetProfit*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier;
-   double targetBuyProfit = targetProfit*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier;
-   double targetOverallProfit = targetProfit*(positions*gridStepProfitMultiplier);
+   double targetSellProfit = targetProfit+(targetProfit/100*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier);
+   double targetBuyProfit = targetProfit+(targetProfit/100*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier);
+   double targetOverallProfit = targetProfit+(targetProfit/100*positions*gridStepProfitMultiplier);
 
-   if(sellProfit > targetSellProfit)
+   if(sellProfit >= targetSellProfit)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
@@ -271,7 +287,7 @@ void Tick(string symbol)
         }
      }
 
-   if(buyProfit > targetBuyProfit)
+   if(buyProfit >= targetBuyProfit)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
@@ -283,7 +299,7 @@ void Tick(string symbol)
         }
      }
 
-   if(buyProfit+sellProfit > targetOverallProfit && (lowestSellPrice > highestBuyPrice))
+   if(buyProfit+sellProfit >= targetOverallProfit && (lowestSellPrice > highestBuyPrice))
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
@@ -294,11 +310,11 @@ void Tick(string symbol)
            }
         }
      }
-     
+
    if(lowestBuyPrice-((lowestBuyPrice/100*gridStep)*((buyPositions*gridStepMultiplier)+1)) >= ask && buyLots != 0 && buyPositions < maxGridSteps && !IsNetting())
      {
       double volume = buyPositions*initialLots*lotMultiplier > highestBuyLots*lotMultiplier ? buyPositions*initialLots*lotMultiplier : highestBuyLots*lotMultiplier;
-      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && totalOverallLots+volume < lotMax)
@@ -311,7 +327,7 @@ void Tick(string symbol)
    if(highestSellPrice+((highestSellPrice/100*gridStep)*((sellPositions*gridStepMultiplier)+1)) <= bid && sellLots != 0 && sellPositions < maxGridSteps && !IsNetting())
      {
       double volume = sellPositions*initialLots*lotMultiplier > highestSellLots*lotMultiplier ? sellPositions*initialLots*lotMultiplier : highestSellLots*lotMultiplier;
-      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbol,volume) && totalOverallLots+volume < lotMax)
@@ -322,15 +338,16 @@ void Tick(string symbol)
 
    if((buyPositions == 0) && (sellPositions == 0 || (ask < highestSellPrice && sell)) && buy)
      {
-      double highestLot = sellPositions == 0 ? 0 : sellLots/sellPositions/lotDeviser;
+      double highestLot = sellPositions == 0 ? 0 : lotDeviser > 0 ? sellLots/sellPositions/lotDeviser : 0;
       double volume = highestLot < initialLots ? initialLots : highestLot;
-      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
-      
-      if(IsNetting()) {
+
+      if(IsNetting())
+        {
          volume = lotMin;
-      }
-      
+        }
+
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbol,volume) && totalOverallLots+volume < lotMax)
         {
          trade.Buy(volume,symbol,0,0,0,"MintyGrid Buy " + symbol + " step " + IntegerToString(buyPositions + 1));
@@ -339,14 +356,15 @@ void Tick(string symbol)
 
    if((sellPositions == 0) && (buyPositions == 0 || (bid > lowestBuyPrice && buy)) && sell)
      {
-      double highestLot = buyPositions == 0 ? 0 : buyLots/buyPositions/lotDeviser;
+      double highestLot = buyPositions == 0 ? 0 : lotDeviser > 0 ? buyLots/buyPositions/lotDeviser : 0;
       double volume = highestLot < initialLots ? initialLots : highestLot;
-      //volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
+      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
-      if(IsNetting()) {
+      if(IsNetting())
+        {
          volume = lotMin;
-      }
+        }
 
       if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && totalOverallLots+volume < lotMax)
         {
@@ -468,8 +486,12 @@ bool CheckVolumeValue(string symbol, double volume)
 
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsNetting()
   {
    ENUM_ACCOUNT_MARGIN_MODE res = (ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE);
    return(res==ACCOUNT_MARGIN_MODE_RETAIL_NETTING);
   }
+//+------------------------------------------------------------------+
