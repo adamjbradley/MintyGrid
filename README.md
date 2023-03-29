@@ -52,7 +52,7 @@ Example where minimumLotSize = 0.01:
 
 Lots get multiplied per gird step by the grid step multiplier
 
-Example the market is in a major downwars swing and MintyGrid has 8 buy positions open.
+Example the market is in a major downwards swing and MintyGrid has 8 buy positions open.
 
 Formula:
 ```
