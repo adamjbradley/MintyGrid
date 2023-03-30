@@ -38,9 +38,9 @@
 //| THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY     |
 //| OF SUCH DAMAGE.                                                  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2021, Christopher Benjamin Hemmens Ltd."
+#property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "2.4"
+#property version   "2.5"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -50,18 +50,20 @@ enum RiskType {Fixed, Dynamic};
 
 //--- Risk settings parameters
 input group "Risk settings";
-input RiskBase riskBase=Equity; // Factor to base risk on
+
 input RiskType riskType=Fixed; // Whether to use fixed or dynamic risk
+input RiskBase riskBase=Equity; // Factor to base risk on when using dynamic risk
 input double   riskFactor=0.01; // Fixed lot size or percentage of risk base multiplied by min lot
-input double   profitFactor=1; // Fixed profit in deposit currency or percentage of risk base
+input double   profitFactor=0.1; // Fixed profit in deposit currency or percentage of risk base
 
 input group "Martingale grid settings";
-input double   lotMultiplier=1.5; // Grid step martingale lot multiplier (0 to disable)
-input double   lotDeviser=0; // Grid reverse martingale lot deviser (0 to disable)
-input double   gridStep=0.03; // Grid step price movement percentage
-input double   gridStepMultiplier=1; // Grid step distance multiplier
-input double   gridStepProfitMultiplier=1000; // Grid step profit multiplier
-input int      maxGridSteps=15; // Maximum amount of grid steps
+input double   lotMultiplier=1.5; // Step martingale lot multiplier (0 to disable)
+input double   lotDeviser=0; // Reverse martingale lot deviser (0 to disable, keep above 2.5)
+input double   gridStep=0.03; // Step price movement percentage
+input double   gridStepMultiplier=10; // Step distance multiplier (0 to disable)
+input double   gridStepProfitMultiplier=100; // Step profit multiplier (0 to disable)
+input int      breakEventGridStep=3; // Try break even on grid step (0 to disable)
+input int      maxGridSteps=9; // Maximum amount of grid steps
 
 input group "Trade settings";
 input bool     buy = true; // Whether to enable buy trades
@@ -71,7 +73,7 @@ input group "Symbol settings";
 input string   currencyPairs = "EURUSD"; // Symbols to trade comma seperated
 
 input group "Expert Advisor settings";
-input int      magicNumber = 901239; // Magic
+input int      magicNumber = 901239; // Magic number
 
 CTrade trade;
 CPositionInfo position;
@@ -97,6 +99,14 @@ int OnInit()
    trade.SetExpertMagicNumber(magicNumber);
    trade.LogLevel(LOG_LEVEL_NO);
 
+   if(MQLInfoInteger(MQL_TESTER))
+     {
+      for(int i=0; i<totalSymbols; i++)
+        {
+         CheckLoadHistory(symbols[i], _Period, 100000);
+        }
+     }
+
    return(INIT_SUCCEEDED);
   }
 //+------------------------------------------------------------------+
@@ -104,14 +114,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 int OnTesterInit(void)
   {
-
-   for(int i=0; i<totalSymbols; i++)
-     {
-
-      CheckLoadHistory(symbols[i], _Period, 100000);
-
-
-     }
    return(INIT_SUCCEEDED);
   }
 
@@ -163,13 +165,8 @@ void Tick(string symbol)
    double bid = SymbolInfoDouble(symbol,SYMBOL_BID);
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-
-   double profit = AccountInfoDouble(ACCOUNT_PROFIT);
-
    double lotMin = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
-   double lotMax = SymbolInfoDouble(symbol,SYMBOL_VOLUME_LIMIT);
-   if(lotMax==0)
-      lotMax=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX);
+   double lotMax = SymbolInfoDouble(symbol,SYMBOL_VOLUME_LIMIT) == 0 ? SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX) : SymbolInfoDouble(symbol,SYMBOL_VOLUME_LIMIT);
    double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
 
    int lotDecimals = lotStep < 0.01 ? 3 : lotStep > 0.09 ? lotStep > 0.9 ? 0 : 1 : 2;
@@ -247,7 +244,7 @@ void Tick(string symbol)
                highestBuyLots = position.Volume();
               }
            }
-           
+
          if(position.PositionType() == POSITION_TYPE_SELL)
            {
             sellPositions++;
@@ -271,9 +268,20 @@ void Tick(string symbol)
      }
 
 
-   double targetSellProfit = targetProfit+(targetProfit/100*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier);
-   double targetBuyProfit = targetProfit+(targetProfit/100*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier);
-   double targetOverallProfit = targetProfit+(targetProfit/100*positions*gridStepProfitMultiplier);
+
+   double targetSellProfit = targetProfit+(targetProfit*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier);
+   double targetBuyProfit = targetProfit+(targetProfit*(buyPositions>sellPositions?buyPositions:sellPositions)*gridStepProfitMultiplier);
+   double targetOverallProfit = (targetProfit*positions*gridStepProfitMultiplier);
+
+   if(buyPositions >= breakEventGridStep && breakEventGridStep > 0)
+     {
+      targetBuyProfit = 0;
+     }
+
+   if(sellPositions >= breakEventGridStep && breakEventGridStep > 0)
+     {
+      targetSellProfit = 0;
+     }
 
    if(sellProfit >= targetSellProfit)
      {
@@ -314,6 +322,10 @@ void Tick(string symbol)
    if(lowestBuyPrice-((lowestBuyPrice/100*gridStep)*((buyPositions*gridStepMultiplier)+1)) >= ask && buyLots != 0 && buyPositions < maxGridSteps && !IsNetting())
      {
       double volume = buyPositions*initialLots*lotMultiplier > highestBuyLots*lotMultiplier ? buyPositions*initialLots*lotMultiplier : highestBuyLots*lotMultiplier;
+      if(lotMultiplier==0)
+        {
+         volume = initialLots;
+        }
       volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
@@ -327,6 +339,10 @@ void Tick(string symbol)
    if(highestSellPrice+((highestSellPrice/100*gridStep)*((sellPositions*gridStepMultiplier)+1)) <= bid && sellLots != 0 && sellPositions < maxGridSteps && !IsNetting())
      {
       double volume = sellPositions*initialLots*lotMultiplier > highestSellLots*lotMultiplier ? sellPositions*initialLots*lotMultiplier : highestSellLots*lotMultiplier;
+      if(lotMultiplier==0)
+        {
+         volume = initialLots;
+        }
       volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotDecimals);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotDecimals);
 
