@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "2.6"
+#property version   "2.7"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -55,7 +55,7 @@ input RiskType riskType=Fixed; // Whether to use fixed or dynamic risk
 input RiskBase riskBase=Equity; // Factor to base risk on when using dynamic risk
 input double   riskFactor=0.01; // Fixed lot size or percentage of risk base multiplied by min lot
 input RiskType profitType=Fixed; // Whether to use fixed or dynamic lot size
-input double   profitFactor=1; // Fixed profit in deposit currency or percentage of risk base
+input double   profitFactor=10; // Fixed profit in deposit currency or percentage of risk base
 input double   stopLoss=0.0; // Percentage of price to be used as stop loss (0 to disable)
 
 input group "Martingale grid settings";
@@ -107,13 +107,15 @@ int OnInit()
    ArrayRemove(symbols,ArraySize(symbols),1);
    totalSymbols=ArraySize(symbols);
 
-   for(int i = 0; i < totalSymbols; i++) {
-      if(StringLen(symbols[i]) == 0) {
+   for(int i = 0; i < totalSymbols; i++)
+     {
+      if(StringLen(symbols[i]) == 0)
+        {
          ArrayRemove(symbols, i, 1);
          i--;
          totalSymbols--;
-      }
-   }
+        }
+     }
 
    ArrayResize(symbolProfit, totalSymbols);
    ArrayResize(symbolBuyProfit, totalSymbols);
@@ -258,7 +260,7 @@ void Tick(int symbolIndex, string symbol)
          if(position.Symbol() == symbol)
            {
             positions++;
-            profit = position.Profit();
+            profit += position.Profit();
             totalOverallLots += position.Volume();
 
             if(position.PositionType() == POSITION_TYPE_BUY)
@@ -461,22 +463,49 @@ void Tick(int symbolIndex, string symbol)
 //+------------------------------------------------------------------+
 void DrawComment()
   {
-   Comment("hi");
-   string comment = "MintyGrid\n\n[symbol]      [buy positions]      [sell positions]     [symbol profit]      [sell profit]     [buy profit]      [target sell profit]    [target buy profit]\n";
+   string comment = "MintyGrid\n\n"
+                  +  WhiteSpaceToLength("[symbol]")
+                  +  WhiteSpaceToLength("[buy positions]",20)
+                  +  WhiteSpaceToLength("[sell positions]", 20)
+                  +  WhiteSpaceToLength("[symbol profit]")
+                  +  WhiteSpaceToLength("[sell profit]")
+                  +  WhiteSpaceToLength("[buy profit]")
+                  +  WhiteSpaceToLength("[target sell profit]")
+                  +  WhiteSpaceToLength("[target buy profit]")
+                  + "\n";
+                  
    for(int i = 0; i < ArraySize(symbols); i++)
      {
-      comment += symbols[i]
-                 + "          " + (string)symbolBuyPositions[i]
-                 + "                      " + (string)symbolSellPositions[i]
-                 + "                   " + DoubleToString(symbolProfit[i],2)
-                 + "                   " + DoubleToString(symbolSellProfit[i],2)
-                 + "                   " + DoubleToString(symbolBuyProfit[i],2)
-                 + "                   " + DoubleToString(symbolTargetSellProfit[i],2)
-                 + "                   " + DoubleToString(symbolTargetBuyProfit[i],2) + "\n";
+      comment += WhiteSpaceToLength(symbols[i])
+                 + WhiteSpaceToLength((string)symbolBuyPositions[i])
+                 + WhiteSpaceToLength((string)symbolSellPositions[i])
+                 + WhiteSpaceToLength(DoubleToString(symbolProfit[i],2))
+                 + WhiteSpaceToLength(DoubleToString(symbolSellProfit[i],2))
+                 + WhiteSpaceToLength(DoubleToString(symbolBuyProfit[i],2))
+                 + WhiteSpaceToLength(DoubleToString(symbolTargetSellProfit[i],2))
+                 + WhiteSpaceToLength(DoubleToString(symbolTargetBuyProfit[i],2))
+                 + "\n";
      }
 
    Comment(comment);
   }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string WhiteSpaceToLength(string str, int length = 25)
+  {
+   int stringLength = StringLen(str);
+   string output = str;
+
+   for(int i = 0; i <= length-stringLength; i++)
+     {
+      output += " ";
+     }
+
+   return output;
+  }
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
