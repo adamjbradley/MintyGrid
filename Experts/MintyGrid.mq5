@@ -63,7 +63,7 @@ input double   lotMultiplier=1.5; // Step martingale lot multiplier (0 to disabl
 input double   lotDeviser=0; // Reverse martingale lot deviser (0 to disable, keep above 2.5)
 input double   gridStep=0.03; // Step price movement percentage
 input double   gridStepMultiplier=10; // Step distance multiplier (0 to disable)
-input double   gridStepProfitMultiplier=2; // Step profit multiplier (0 to disable)
+input double   gridStepProfitMultiplier=100; // Step profit multiplier (0 to disable)
 input int      breakEventGridStep=4; // Try break even on grid step (0 to disable)
 input int      maxGridSteps=9; // Maximum amount of grid steps
 
@@ -471,8 +471,8 @@ void DrawComment()
                  + "                   " + DoubleToString(symbolProfit[i],2)
                  + "                   " + DoubleToString(symbolSellProfit[i],2)
                  + "                   " + DoubleToString(symbolBuyProfit[i],2)
-                 + "                   " + DoubleToString(symbolTargetBuyProfit[i],2)
-                 + "                   " + DoubleToString(symbolTargetSellProfit[i],2) + "\n";
+                 + "                   " + DoubleToString(symbolTargetSellProfit[i],2)
+                 + "                   " + DoubleToString(symbolTargetBuyProfit[i],2) + "\n";
      }
 
    Comment(comment);
