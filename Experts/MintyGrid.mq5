@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "2.7"
+#property version   "3.0"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -51,21 +51,21 @@ enum RiskType {Fixed, Dynamic};
 //--- Risk settings parameters
 input group "Risk settings";
 
-input RiskType riskType=Fixed; // Whether to use fixed or dynamic risk
+input RiskType riskType=Dynamic; // Whether to use fixed or dynamic risk
 input RiskBase riskBase=Equity; // Factor to base risk on when using dynamic risk
-input double   riskFactor=0.01; // Fixed lot size or percentage of risk base multiplied by min lot
-input RiskType profitType=Fixed; // Whether to use fixed or dynamic lot size
-input double   profitFactor=10; // Fixed profit in deposit currency or percentage of risk base
+input double   riskFactor=10; // Fixed lot size or dynamic risk factor
+input RiskType profitType=Dynamic; // Whether to use fixed or dynamic lot size
+input double   profitFactor=1; // Fixed profit in deposit currency or dynamic profit factor
 input double   stopLoss=0.0; // Percentage of price to be used as stop loss (0 to disable)
 
 input group "Martingale grid settings";
-input double   lotMultiplier=1.5; // Step martingale lot multiplier (0 to disable)
-input double   lotDeviser=0; // Reverse martingale lot deviser (0 to disable, keep above 2.5)
-input double   gridStep=0.03; // Step price movement percentage
-input double   gridStepMultiplier=10; // Step distance multiplier (0 to disable)
-input double   gridStepProfitMultiplier=100; // Step profit multiplier (0 to disable)
+input double   lotMultiplier=2; // Step martingale lot multiplier (0 to disable)
+input double   lotDeviser=3; // Reverse martingale lot deviser (0 to disable, keep above 2.5)
+input double   gridStep=0.02; // Step price movement percentage
+input double   gridStepMultiplier=4.5; // Step distance multiplier (0 to disable)
+input double   gridStepProfitMultiplier=1; // Step profit multiplier (0 to disable)
 input int      breakEventGridStep=4; // Try break even on grid step (0 to disable)
-input int      maxGridSteps=9; // Maximum amount of grid steps
+input int      maxGridSteps=12; // Maximum amount of grid steps
 
 input group "Trade settings";
 input bool     buy = true; // Whether to enable buy trades
@@ -201,19 +201,21 @@ void Tick(int symbolIndex, string symbol)
    double minMargin = GetMinMargin(symbol,lotStep);
    int lotPrecision = GetDoublePrecision(lotStep);
 
+   Print(lotMax);
+
    double initialLots = 0;
    double targetProfit = 0;
 
    if(riskBase == Balance)
      {
-      initialLots = NormalizeDouble((balance/minMargin)/pow(10,lotPrecision+1)*lotStep*riskFactor,lotPrecision);
-      targetProfit = balance/100*profitFactor;
+      initialLots = NormalizeDouble((balance/minMargin)*lotStep/balance*riskFactor,lotPrecision);
+      targetProfit = balance/minMargin/lotStep/balance*profitFactor;
      }
 
    if(riskBase == Equity)
      {
-      initialLots = NormalizeDouble((equity/minMargin)/pow(10,lotPrecision+1)*lotStep*riskFactor,lotPrecision);
-      targetProfit = equity/100*profitFactor;
+      initialLots = NormalizeDouble((equity/minMargin)*lotStep/equity*riskFactor,lotPrecision);
+      targetProfit = equity/minMargin/lotStep/equity*profitFactor;
      }
 
    if(riskType == Fixed)
@@ -226,7 +228,9 @@ void Tick(int symbolIndex, string symbol)
       targetProfit = profitFactor;
      }
 
-   initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax ? lotMax : initialLots,lotPrecision);
+   initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax/gridStepMultiplier/maxGridSteps ? lotMax/gridStepMultiplier/maxGridSteps : initialLots,lotPrecision);
+   
+   Print(initialLots);
 
    int buyPositions = 0;
    int sellPositions = 0;
@@ -305,10 +309,10 @@ void Tick(int symbolIndex, string symbol)
      }
 
 
-   double targetSellProfit = gridStepProfitMultiplier == 0 ? targetProfit : (targetProfit*sellPositions*gridStepProfitMultiplier);
-   double targetBuyProfit = gridStepProfitMultiplier == 0 ? targetProfit : (targetProfit*buyPositions*gridStepProfitMultiplier);
-   double targetOverallProfit = gridStepProfitMultiplier == 0 ? targetProfit : (targetProfit*positions*gridStepProfitMultiplier);
-   double targetAllPositionProfit = gridStepProfitMultiplier == 0 ? targetProfit :  targetProfit*(totalAllSymbolPositions*gridStepProfitMultiplier/totalSymbols);
+   double targetSellProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(sellPositions-1)*gridStepProfitMultiplier);
+   double targetBuyProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(buyPositions-1)*gridStepProfitMultiplier);
+   double targetOverallProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(positions/2)*gridStepProfitMultiplier);
+   double targetAllPositionProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit*(totalAllSymbolPositions*gridStepProfitMultiplier/totalSymbols);
 
    if(buyPositions >= breakEventGridStep && breakEventGridStep > 0)
      {
