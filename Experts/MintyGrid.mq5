@@ -264,49 +264,42 @@ int OnInit()
          tableCells[o].Create(0,"tableCells" + (string)o,0,col2,rowHeight);
          tableCells[o].FontSize(8);
          tableCells[o].Color(clrDarkSlateGray);
-         tableCells[o].SetString(OBJPROP_TEXT, (string)symbolBuyPositions[i]);
 
          o++;
          tableCells[o] = new CChartObjectLabel;
          tableCells[o].Create(0,"tableCells" + (string)o,0,col3,rowHeight);
          tableCells[o].FontSize(8);
          tableCells[o].Color(clrDarkSlateGray);
-         tableCells[o].SetString(OBJPROP_TEXT, (string)symbolSellPositions[i]);
 
          o++;
          tableCells[o] = new CChartObjectLabel;
          tableCells[o].Create(0,"tableCells" + (string)o,0,col4,rowHeight);
          tableCells[o].FontSize(8);
          tableCells[o].Color(clrDarkSlateGray);
-         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolProfit[i],2));
 
          o++;
          tableCells[o] = new CChartObjectLabel;
          tableCells[o].Create(0,"tableCells" + (string)o,0,col5,rowHeight);
          tableCells[o].FontSize(8);
          tableCells[o].Color(clrDarkSlateGray);
-         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolSellProfit[i],2));
 
          o++;
          tableCells[o] = new CChartObjectLabel;
          tableCells[o].Create(0,"tableCells" + (string)o,0,col6,rowHeight);
          tableCells[o].FontSize(8);
          tableCells[o].Color(clrDarkSlateGray);
-         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolBuyProfit[i],2));
 
          o++;
          tableCells[o] = new CChartObjectLabel;
          tableCells[o].Create(0,"tableCells" + (string)o,0,col7,rowHeight);
          tableCells[o].FontSize(8);
          tableCells[o].Color(clrDarkSlateGray);
-         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolTargetSellProfit[i],2));
 
          o++;
          tableCells[o] = new CChartObjectLabel;
          tableCells[o].Create(0,"tableCells" + (string)o,0,col8,rowHeight);
          tableCells[o].FontSize(8);
          tableCells[o].Color(clrDarkSlateGray);
-         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolTargetBuyProfit[i],2));
         }
      }
 
@@ -354,12 +347,12 @@ void OnTimer()
          tableCells[o].Color(symbolProfit[i] > 0 ? clrGreen : symbolProfit[i] < 0 ? clrRed : clrSlateGray);
 
          o++;
-         tableCells[o].SetString(OBJPROP_TEXT, (symbolSellProfit[i] > 0 ? "+" : "") + DoubleToString(symbolSellProfit[i],2));
-         tableCells[o].Color(symbolSellProfit[i] > 0 ? clrGreen : symbolSellProfit[i] < 0 ? clrRed : clrSlateGray);
-
-         o++;
          tableCells[o].SetString(OBJPROP_TEXT, (symbolBuyProfit[i] > 0 ? "+" : "") + DoubleToString(symbolBuyProfit[i],2));
          tableCells[o].Color(symbolBuyProfit[i] > 0 ? clrGreen : symbolBuyProfit[i] < 0 ? clrRed : clrSlateGray);
+         
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, (symbolSellProfit[i] > 0 ? "+" : "") + DoubleToString(symbolSellProfit[i],2));
+         tableCells[o].Color(symbolSellProfit[i] > 0 ? clrGreen : symbolSellProfit[i] < 0 ? clrRed : clrSlateGray);
 
          o++;
          tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolTargetSellProfit[i],2));
@@ -674,46 +667,6 @@ void Tick(int symbolIndex, string symbol)
      }
   }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-string GetComment()
-  {
-   string comment = "MintyGrid"
-                    + "\n\n"
-                    + WhiteSpaceToLength("Profit: ",36)
-                    + "\n"
-                    + WhiteSpaceToLength("Symbols: ",31)
-                    + DoubleToString(totalSymbols,2)
-                    + "\n"
-                    + WhiteSpaceToLength("All symbol target profit: ", 29)
-                    + DoubleToString(totalAllSymbolProfit,2)
-                    + "\n\n"
-                    +  WhiteSpaceToLength("[symbol]")
-                    +  WhiteSpaceToLength("[buy positions]",20)
-                    +  WhiteSpaceToLength("[sell positions]", 20)
-                    +  WhiteSpaceToLength("[symbol profit]")
-                    +  WhiteSpaceToLength("[sell profit]")
-                    +  WhiteSpaceToLength("[buy profit]")
-                    +  WhiteSpaceToLength("[target sell profit]")
-                    +  WhiteSpaceToLength("[target buy profit]")
-                    + "\n";
-
-   for(int i = 0; i < ArraySize(symbols); i++)
-     {
-      comment += WhiteSpaceToLength(symbols[i])
-                 + WhiteSpaceToLength((string)symbolBuyPositions[i])
-                 + WhiteSpaceToLength((string)symbolSellPositions[i])
-                 + WhiteSpaceToLength(DoubleToString(symbolProfit[i],2))
-                 + WhiteSpaceToLength(DoubleToString(symbolSellProfit[i],2))
-                 + WhiteSpaceToLength(DoubleToString(symbolBuyProfit[i],2))
-                 + WhiteSpaceToLength(DoubleToString(symbolTargetSellProfit[i],2))
-                 + WhiteSpaceToLength(DoubleToString(symbolTargetBuyProfit[i],2))
-                 + "\n";
-     }
-
-   return comment;
-  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
