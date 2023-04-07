@@ -40,10 +40,12 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "3.1"
+#property version   "3.2"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
+#include <ChartObjects\ChartObjectsShapes.mqh>
+#include <ChartObjects\ChartObjectsTxtControls.mqh>
 
 enum RiskBase {Balance, Equity};
 enum RiskType {Fixed, Dynamic};
@@ -82,6 +84,19 @@ input int      magicNumber = 901239; // Magic number
 CTrade trade;
 CPositionInfo position;
 COrderInfo order;
+
+CChartObjectRectLabel* rect = new CChartObjectRectLabel;
+
+CChartObjectLabel* title = new CChartObjectLabel;
+CChartObjectLabel* profitLabel = new CChartObjectLabel;
+CChartObjectLabel* profitValue = new CChartObjectLabel;
+CChartObjectLabel* symbolCountLabel = new CChartObjectLabel;
+CChartObjectLabel* symbolCountValue = new CChartObjectLabel;
+CChartObjectLabel* allSymbolTargetProfitLabel = new CChartObjectLabel;
+CChartObjectLabel* allSymbolTargetProfitValue = new CChartObjectLabel;
+
+CChartObjectLabel* tableCells[];
+
 
 string symbols[];
 int totalSymbols = 0;
@@ -142,6 +157,159 @@ int OnInit()
         }
      }
 
+
+   if(showComment)
+     {
+      int width = 640;
+      int col1 = (width/8*0)+5;
+      int col2 = (width/8*1)+5;
+      int col3 = (width/8*2)+5;
+      int col4 = (width/8*3)+5;
+      int col5 = (width/8*4)+5;
+      int col6 = (width/8*5)+5;
+      int col7 = (width/8*6)+5;
+      int col8 = (width/8*7)+5;
+
+      rect.Create(0, "rect", 0,0,0,width,(totalSymbols*20)+55);
+      rect.BackColor(clrMintCream);
+      rect.BorderType(BORDER_FLAT);
+
+      title.Create(0,"title",0,width-83,5);
+      title.FontSize(9);
+      title.Color(clrForestGreen);
+      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
+
+      symbolCountLabel.Create(0,"symbolCountLabel",0,col1,5);
+      symbolCountLabel.FontSize(7);
+      symbolCountLabel.Color(clrSlateGray);
+      symbolCountLabel.SetString(OBJPROP_TEXT, "Symbols:");
+      symbolCountValue.Create(0,"symbolCountValue",0,col2,5);
+      symbolCountValue.FontSize(8);
+      symbolCountValue.SetString(OBJPROP_TEXT, (string)totalSymbols);
+      symbolCountValue.Color(clrDarkSlateGray);
+
+      profitLabel.Create(0,"profitLabel",0,col3,5);
+      profitLabel.FontSize(7);
+      profitLabel.Color(clrSlateGray);
+      profitLabel.SetString(OBJPROP_TEXT, "Profit:");
+      profitValue.Create(0,"profitValue",0,col4,5);
+      profitValue.FontSize(8);
+      profitValue.Color(clrSlateGray);
+
+      int rowHeight = 40;
+      ArrayResize(tableCells, ArraySize(tableCells)+8);
+
+      tableCells[0] = new CChartObjectLabel;
+      tableCells[0].Create(0,"tableCells0",0,col1,rowHeight);
+      tableCells[0].FontSize(7);
+      tableCells[0].Color(clrSlateGray);
+      tableCells[0].SetString(OBJPROP_TEXT, "symbol");
+
+      tableCells[1] = new CChartObjectLabel;
+      tableCells[1].Create(0,"tableCells1",0,col2,rowHeight);
+      tableCells[1].FontSize(7);
+      tableCells[1].Color(clrSlateGray);
+      tableCells[1].SetString(OBJPROP_TEXT, "buy positions");
+
+      tableCells[2] = new CChartObjectLabel;
+      tableCells[2].Create(0,"tableCells2",0,col3,rowHeight);
+      tableCells[2].FontSize(7);
+      tableCells[2].Color(clrSlateGray);
+      tableCells[2].SetString(OBJPROP_TEXT, "sell positions");
+
+      tableCells[3] = new CChartObjectLabel;
+      tableCells[3].Create(0,"tableCells3",0,col4,rowHeight);
+      tableCells[3].FontSize(7);
+      tableCells[3].Color(clrSlateGray);
+      tableCells[3].SetString(OBJPROP_TEXT, "profit");
+
+      tableCells[4] = new CChartObjectLabel;
+      tableCells[4].Create(0,"tableCells4",0,col5,rowHeight);
+      tableCells[4].FontSize(7);
+      tableCells[4].Color(clrSlateGray);
+      tableCells[4].SetString(OBJPROP_TEXT, "buy profit");
+
+      tableCells[5] = new CChartObjectLabel;
+      tableCells[5].Create(0,"tableCells5",0,col6,rowHeight);
+      tableCells[5].FontSize(7);
+      tableCells[5].Color(clrSlateGray);
+      tableCells[5].SetString(OBJPROP_TEXT, "sell profit");
+
+      tableCells[6] = new CChartObjectLabel;
+      tableCells[6].Create(0,"tableCells6",0,col7,rowHeight);
+      tableCells[6].FontSize(7);
+      tableCells[6].Color(clrSlateGray);
+      tableCells[6].SetString(OBJPROP_TEXT, "target buy profit");
+
+      tableCells[7] = new CChartObjectLabel;
+      tableCells[7].Create(0,"tableCells7",0,col8,rowHeight);
+      tableCells[7].FontSize(7);
+      tableCells[7].Color(clrSlateGray);
+      tableCells[7].SetString(OBJPROP_TEXT, "target sell profit");
+
+      for(int i = 0, o = ArraySize(tableCells)-1; i < (totalSymbols); i++)
+        {
+         ArrayResize(tableCells, ArraySize(tableCells)+8);
+         rowHeight = (20*i)+55;
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col1,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, symbols[i]);
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col2,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, (string)symbolBuyPositions[i]);
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col3,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, (string)symbolSellPositions[i]);
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col4,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolProfit[i],2));
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col5,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolSellProfit[i],2));
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col6,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolBuyProfit[i],2));
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col7,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolTargetSellProfit[i],2));
+
+         o++;
+         tableCells[o] = new CChartObjectLabel;
+         tableCells[o].Create(0,"tableCells" + (string)o,0,col8,rowHeight);
+         tableCells[o].FontSize(8);
+         tableCells[o].Color(clrDarkSlateGray);
+         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolTargetBuyProfit[i],2));
+        }
+     }
+
    return(INIT_SUCCEEDED);
   }
 //+------------------------------------------------------------------+
@@ -166,7 +334,46 @@ void OnTimer()
   {
    if(showComment)
      {
-      DrawComment();
+
+      double currentProfit = AccountInfoDouble(ACCOUNT_EQUITY)-startBalance;
+      profitValue.SetString(OBJPROP_TEXT, (currentProfit > 0 ? "+" : "") + DoubleToString(currentProfit, (int)AccountInfoInteger(ACCOUNT_CURRENCY_DIGITS)));
+      profitValue.Color(currentProfit > 0 ? clrGreen : currentProfit < 0 ? clrRed : clrSlateGray);
+
+      for(int i = 0, o = 7; i < (totalSymbols); i++)
+        {
+
+         o++;
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, (string)symbolBuyPositions[i]);
+
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, (string)symbolSellPositions[i]);
+
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, (symbolProfit[i] > 0 ? "+" : "") + DoubleToString(symbolProfit[i],2));
+         tableCells[o].Color(symbolProfit[i] > 0 ? clrGreen : symbolProfit[i] < 0 ? clrRed : clrSlateGray);
+
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, (symbolSellProfit[i] > 0 ? "+" : "") + DoubleToString(symbolSellProfit[i],2));
+         tableCells[o].Color(symbolSellProfit[i] > 0 ? clrGreen : symbolSellProfit[i] < 0 ? clrRed : clrSlateGray);
+
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, (symbolBuyProfit[i] > 0 ? "+" : "") + DoubleToString(symbolBuyProfit[i],2));
+         tableCells[o].Color(symbolBuyProfit[i] > 0 ? clrGreen : symbolBuyProfit[i] < 0 ? clrRed : clrSlateGray);
+
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolTargetSellProfit[i],2));
+         tableCells[o].Color(clrSlateGray);
+
+         o++;
+         tableCells[o].SetString(OBJPROP_TEXT, DoubleToString(symbolTargetBuyProfit[i],2));
+         tableCells[o].Color(clrSlateGray);
+
+
+        }
+
+      //label.SetString(OBJPROP_TEXT, GetComment());
+      ChartRedraw();
      }
   }
 //+------------------------------------------------------------------+
@@ -320,8 +527,6 @@ void Tick(int symbolIndex, string symbol)
    double targetOverallProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit/positions*(positions))*gridStepProfitMultiplier);
    double targetAllPositionProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit*totalAllSymbolPositions/totalSymbols)*gridStepProfitMultiplier);
 
-
-
    if(buyPositions >= breakEventGridStep && breakEventGridStep > 0)
      {
       targetBuyProfit = 0;
@@ -472,17 +677,16 @@ void Tick(int symbolIndex, string symbol)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void DrawComment()
+string GetComment()
   {
    string comment = "MintyGrid"
                     + "\n\n"
                     + WhiteSpaceToLength("Profit: ",36)
-                    + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY)-startBalance,2)
                     + "\n"
-                    + WhiteSpaceToLength("Symbols: ",36)
+                    + WhiteSpaceToLength("Symbols: ",31)
                     + DoubleToString(totalSymbols,2)
                     + "\n"
-                    + WhiteSpaceToLength("All symbol target profit: ", 30)
+                    + WhiteSpaceToLength("All symbol target profit: ", 29)
                     + DoubleToString(totalAllSymbolProfit,2)
                     + "\n\n"
                     +  WhiteSpaceToLength("[symbol]")
@@ -508,7 +712,7 @@ void DrawComment()
                  + "\n";
      }
 
-   Comment(comment);
+   return comment;
   }
 
 //+------------------------------------------------------------------+
