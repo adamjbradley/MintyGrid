@@ -60,12 +60,13 @@ input double   stopLoss=0.0; // Percentage of price to be used as stop loss (0 t
 
 input group "Martingale grid settings";
 input double   lotMultiplier=2; // Step martingale lot multiplier (0 to disable)
-input double   lotDeviser=3; // Reverse martingale lot deviser (0 to disable, keep above 2.5)
-input double   gridStep=0.02; // Step price movement percentage
-input double   gridStepMultiplier=4.5; // Step distance multiplier (0 to disable)
-input double   gridStepProfitMultiplier=1; // Step profit multiplier (0 to disable)
-input int      breakEventGridStep=4; // Try break even on grid step (0 to disable)
-input int      maxGridSteps=12; // Maximum amount of grid steps
+input double   gridStep=0.03; // Step price movement percentage
+input double   gridStepMultiplier=10; // Step distance multiplier (0 to disable)
+input double   gridStepProfitMultiplier=0; // Step profit multiplier (0 to disable)
+input double   gridReverseStepMultiplier=1; // Opposite direction reverse grid step distance (0 to disable)
+input double   gridReverseLotDeviser=2; // Reverse martingale lot deviser (0 to disable)
+input int      breakEventGridStep=10; // Try break even on grid step (0 to disable)
+input int      maxGridSteps=10; // Maximum amount of grid steps
 
 input group "Trade settings";
 input bool     buy = true; // Whether to enable buy trades
@@ -101,7 +102,7 @@ ulong positionsToClose[];
 int OnInit()
   {
 //--- create timer
-   EventSetTimer(1);
+   EventSetTimer(1000/30);
 
    int split=StringSplit(currencyPairs,",",symbols);
    ArrayRemove(symbols,ArraySize(symbols),1);
@@ -158,7 +159,9 @@ void OnTesterDeinit(void)
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-
+      if(showComment) {
+         DrawComment();
+      }
   }
 //+------------------------------------------------------------------+
 //| Expert deinitialization function                                 |
@@ -177,8 +180,6 @@ void OnTick()
   {
    for(int i = 0; i < totalSymbols; i++)
      {
-
-
       Tick(i, symbols[i]);
      }
   }
@@ -200,8 +201,6 @@ void Tick(int symbolIndex, string symbol)
    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
    double minMargin = GetMinMargin(symbol,lotStep);
    int lotPrecision = GetDoublePrecision(lotStep);
-
-   Print(lotMax);
 
    double initialLots = 0;
    double targetProfit = 0;
@@ -229,8 +228,6 @@ void Tick(int symbolIndex, string symbol)
      }
 
    initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax/gridStepMultiplier/maxGridSteps ? lotMax/gridStepMultiplier/maxGridSteps : initialLots,lotPrecision);
-   
-   Print(initialLots);
 
    int buyPositions = 0;
    int sellPositions = 0;
@@ -309,9 +306,9 @@ void Tick(int symbolIndex, string symbol)
      }
 
 
-   double targetSellProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(sellPositions-1)*gridStepProfitMultiplier);
-   double targetBuyProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(buyPositions-1)*gridStepProfitMultiplier);
-   double targetOverallProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(positions/2)*gridStepProfitMultiplier);
+   double targetSellProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(totalOverallLots-sellLots < sellLots ? initialLots/sellLots : initialLots/(buyLots-sellLots))*gridStepProfitMultiplier);
+   double targetBuyProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(totalOverallLots-buyLots < buyLots ? initialLots/buyLots : initialLots/(sellLots-buyLots))*gridStepProfitMultiplier);
+   double targetOverallProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(initialLots/totalOverallLots)*gridStepProfitMultiplier);
    double targetAllPositionProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit*(totalAllSymbolPositions*gridStepProfitMultiplier/totalSymbols);
 
    if(buyPositions >= breakEventGridStep && breakEventGridStep > 0)
@@ -408,9 +405,9 @@ void Tick(int symbolIndex, string symbol)
         }
      }
 
-   if((buyPositions == 0) && (sellPositions == 0 || (ask < highestSellPrice && sell)) && buy)
+   if((buyPositions == 0) && (sellPositions == 0 || (ask < highestSellPrice-((highestSellPrice/100*gridStep)*((gridStepMultiplier*gridReverseStepMultiplier))) && sell)) && buy)
      {
-      double highestLot = sellPositions == 0 ? 0 : lotDeviser > 0 ? sellLots/sellPositions/lotDeviser : 0;
+      double highestLot = sellPositions == 0 ? 0 : gridReverseLotDeviser > 0 ? sellLots/sellPositions/gridReverseLotDeviser : 0;
       double volume = highestLot < initialLots ? initialLots : highestLot;
       volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotPrecision);
       volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotPrecision);
@@ -427,9 +424,9 @@ void Tick(int symbolIndex, string symbol)
         }
      }
 
-   if((sellPositions == 0) && (buyPositions == 0 || (bid > lowestBuyPrice && buy)) && sell)
+   if((sellPositions == 0) && (buyPositions == 0 || (bid > lowestBuyPrice+((lowestBuyPrice/100*gridStep)*((gridStepMultiplier*gridReverseStepMultiplier))) && buy)) && sell)
      {
-      double highestLot = buyPositions == 0 ? 0 : lotDeviser > 0 ? buyLots/buyPositions/lotDeviser : 0;
+      double highestLot = buyPositions == 0 ? 0 : gridReverseLotDeviser > 0 ? buyLots/buyPositions/gridReverseLotDeviser : 0;
       double volume = highestLot < initialLots ? initialLots : highestLot;
       volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotPrecision);
       volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotPrecision);
@@ -457,8 +454,6 @@ void Tick(int symbolIndex, string symbol)
       symbolSellPositions[symbolIndex] = sellPositions;
       symbolTargetBuyProfit[symbolIndex] = targetBuyProfit;
       symbolTargetSellProfit[symbolIndex] = targetSellProfit;
-
-      DrawComment();
      }
   }
 
