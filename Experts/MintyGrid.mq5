@@ -54,17 +54,17 @@ input group "Risk settings";
 input RiskBase riskBase=Equity; // Factor to base risk on when using dynamic risk
 input RiskType riskType=Dynamic; // Whether to use fixed or dynamic risk
 input RiskType profitType=Dynamic; // Whether to use fixed or dynamic lot size
-input double   riskFactor=100; // Fixed lot size or dynamic risk factor
-input double   profitFactor=300; // Fixed profit in deposit currency or dynamic profit factor
+input double   riskFactor=1; // Fixed lot size or dynamic risk factor
+input double   profitFactor=2; // Fixed profit in deposit currency or dynamic profit factor
 input double   stopLoss=0.0; // Percentage of price to be used as stop loss (0 to disable)
 
 input group "Martingale grid settings";
 input double   lotMultiplier=2; // Step martingale lot multiplier (0 to disable)
 input double   gridStep=0.02; // Step price movement percentage
-input double   gridStepMultiplier=10; // Step distance multiplier (0 to disable)
+input double   gridStepMultiplier=5; // Step distance multiplier (0 to disable)
 input double   gridStepProfitMultiplier=0; // Step profit multiplier (0 to disable)
-input double   gridReverseStepMultiplier=1; // Opposite direction reverse grid step distance (0 to disable)
-input double   gridReverseLotDeviser=2; // Reverse martingale lot deviser (0 to disable)
+input double   gridReverseStepMultiplier=1; // Reverse direction step multiplier (0 to disable)
+input double   gridReverseLotDeviser=1.5; // Reverse martingale lot deviser (0 to disable)
 input int      breakEventGridStep=10; // Try break even on grid step (0 to disable)
 input int      maxGridSteps=10; // Maximum amount of grid steps
 
@@ -91,10 +91,13 @@ double symbolBuyProfit[];
 double symbolSellProfit[];
 double symbolTargetBuyProfit[];
 double symbolTargetSellProfit[];
+double totalAllSymbolProfit;
 int symbolBuyPositions[];
 int symbolSellPositions[];
 
 ulong positionsToClose[];
+
+double startBalance;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -105,12 +108,11 @@ int OnInit()
    EventSetTimer(1000/30);
 
    int split=StringSplit(currencyPairs,",",symbols);
-   ArrayRemove(symbols,ArraySize(symbols),1);
    totalSymbols=ArraySize(symbols);
 
    for(int i = 0; i < totalSymbols; i++)
      {
-      if(StringLen(symbols[i]) == 0)
+      if(StringLen(symbols[i]) == 0 || !SymbolSelect(symbols[i],true))
         {
          ArrayRemove(symbols, i, 1);
          i--;
@@ -128,6 +130,9 @@ int OnInit()
 
    trade.SetExpertMagicNumber(magicNumber);
    trade.LogLevel(LOG_LEVEL_NO);
+
+
+   startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
 
    if(MQLInfoInteger(MQL_TESTER))
      {
@@ -159,9 +164,10 @@ void OnTesterDeinit(void)
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-      if(showComment) {
-         DrawComment();
-      }
+   if(showComment)
+     {
+      DrawComment();
+     }
   }
 //+------------------------------------------------------------------+
 //| Expert deinitialization function                                 |
@@ -208,13 +214,15 @@ void Tick(int symbolIndex, string symbol)
    if(riskBase == Balance)
      {
       initialLots = NormalizeDouble((balance/minMargin)*lotStep/balance*riskFactor,lotPrecision);
-      targetProfit = balance/(balance/pow(10, StringLen((string)(int)balance))*balance)/minMargin/initialLots*profitFactor;
+      initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax/gridStepMultiplier/maxGridSteps ? lotMax/gridStepMultiplier/maxGridSteps : initialLots,lotPrecision);
+      targetProfit = (balance/100/minMargin)*profitFactor;
      }
 
    if(riskBase == Equity)
      {
       initialLots = NormalizeDouble((equity/minMargin)*lotStep/equity*riskFactor,lotPrecision);
-      targetProfit = equity/(equity/pow(10, StringLen((string)(int)equity))*equity)/minMargin/initialLots*profitFactor;
+      initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax/gridStepMultiplier/maxGridSteps ? lotMax/gridStepMultiplier/maxGridSteps : initialLots,lotPrecision);
+      targetProfit = (equity/100/minMargin)*profitFactor;
      }
 
    if(riskType == Fixed)
@@ -227,7 +235,6 @@ void Tick(int symbolIndex, string symbol)
       targetProfit = profitFactor;
      }
 
-   initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax/gridStepMultiplier/maxGridSteps ? lotMax/gridStepMultiplier/maxGridSteps : initialLots,lotPrecision);
 
    int buyPositions = 0;
    int sellPositions = 0;
@@ -249,6 +256,7 @@ void Tick(int symbolIndex, string symbol)
    double profit = 0;
    double allSymbolProfit = 0;
    double totalAllSymbolPositions = 0;
+   double totalAllSymbolLots = 0;
 
    for(int i = 0; i < PositionsTotal(); i++)
      {
@@ -257,6 +265,7 @@ void Tick(int symbolIndex, string symbol)
         {
 
          totalAllSymbolPositions++;
+         totalAllSymbolLots += position.Volume();
          allSymbolProfit += position.Profit();
          if(position.Symbol() == symbol)
            {
@@ -306,10 +315,12 @@ void Tick(int symbolIndex, string symbol)
      }
 
 
-   double targetSellProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(totalOverallLots-sellLots < sellLots ? initialLots/sellLots : initialLots/(buyLots-sellLots))*gridStepProfitMultiplier);
-   double targetBuyProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(totalOverallLots-buyLots < buyLots ? initialLots/buyLots : initialLots/(sellLots-buyLots))*gridStepProfitMultiplier);
-   double targetOverallProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit+(targetProfit*(initialLots/totalOverallLots)*gridStepProfitMultiplier);
-   double targetAllPositionProfit = gridStepProfitMultiplier == 0 ? targetProfit : targetProfit*(totalAllSymbolPositions*gridStepProfitMultiplier/totalSymbols);
+   double targetSellProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit/positions*(sellPositions))*gridStepProfitMultiplier);
+   double targetBuyProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit/positions*(buyPositions))*gridStepProfitMultiplier);
+   double targetOverallProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit/positions*(positions))*gridStepProfitMultiplier);
+   double targetAllPositionProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit*totalAllSymbolPositions/totalSymbols)*gridStepProfitMultiplier);
+
+
 
    if(buyPositions >= breakEventGridStep && breakEventGridStep > 0)
      {
@@ -454,6 +465,7 @@ void Tick(int symbolIndex, string symbol)
       symbolSellPositions[symbolIndex] = sellPositions;
       symbolTargetBuyProfit[symbolIndex] = targetBuyProfit;
       symbolTargetSellProfit[symbolIndex] = targetSellProfit;
+      totalAllSymbolProfit = targetAllPositionProfit;
      }
   }
 
@@ -462,17 +474,27 @@ void Tick(int symbolIndex, string symbol)
 //+------------------------------------------------------------------+
 void DrawComment()
   {
-   string comment = "MintyGrid\n\n"
-                  +  WhiteSpaceToLength("[symbol]")
-                  +  WhiteSpaceToLength("[buy positions]",20)
-                  +  WhiteSpaceToLength("[sell positions]", 20)
-                  +  WhiteSpaceToLength("[symbol profit]")
-                  +  WhiteSpaceToLength("[sell profit]")
-                  +  WhiteSpaceToLength("[buy profit]")
-                  +  WhiteSpaceToLength("[target sell profit]")
-                  +  WhiteSpaceToLength("[target buy profit]")
-                  + "\n";
-                  
+   string comment = "MintyGrid"
+                    + "\n\n"
+                    + WhiteSpaceToLength("Profit: ",36)
+                    + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY)-startBalance,2)
+                    + "\n"
+                    + WhiteSpaceToLength("Symbols: ",36)
+                    + DoubleToString(totalSymbols,2)
+                    + "\n"
+                    + WhiteSpaceToLength("All symbol target profit: ", 30)
+                    + DoubleToString(totalAllSymbolProfit,2)
+                    + "\n\n"
+                    +  WhiteSpaceToLength("[symbol]")
+                    +  WhiteSpaceToLength("[buy positions]",20)
+                    +  WhiteSpaceToLength("[sell positions]", 20)
+                    +  WhiteSpaceToLength("[symbol profit]")
+                    +  WhiteSpaceToLength("[sell profit]")
+                    +  WhiteSpaceToLength("[buy profit]")
+                    +  WhiteSpaceToLength("[target sell profit]")
+                    +  WhiteSpaceToLength("[target buy profit]")
+                    + "\n";
+
    for(int i = 0; i < ArraySize(symbols); i++)
      {
       comment += WhiteSpaceToLength(symbols[i])
