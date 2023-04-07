@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "3.0"
+#property version   "3.1"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -51,16 +51,16 @@ enum RiskType {Fixed, Dynamic};
 //--- Risk settings parameters
 input group "Risk settings";
 
-input RiskType riskType=Dynamic; // Whether to use fixed or dynamic risk
 input RiskBase riskBase=Equity; // Factor to base risk on when using dynamic risk
-input double   riskFactor=10; // Fixed lot size or dynamic risk factor
+input RiskType riskType=Dynamic; // Whether to use fixed or dynamic risk
 input RiskType profitType=Dynamic; // Whether to use fixed or dynamic lot size
-input double   profitFactor=1; // Fixed profit in deposit currency or dynamic profit factor
+input double   riskFactor=100; // Fixed lot size or dynamic risk factor
+input double   profitFactor=300; // Fixed profit in deposit currency or dynamic profit factor
 input double   stopLoss=0.0; // Percentage of price to be used as stop loss (0 to disable)
 
 input group "Martingale grid settings";
 input double   lotMultiplier=2; // Step martingale lot multiplier (0 to disable)
-input double   gridStep=0.03; // Step price movement percentage
+input double   gridStep=0.02; // Step price movement percentage
 input double   gridStepMultiplier=10; // Step distance multiplier (0 to disable)
 input double   gridStepProfitMultiplier=0; // Step profit multiplier (0 to disable)
 input double   gridReverseStepMultiplier=1; // Opposite direction reverse grid step distance (0 to disable)
@@ -208,13 +208,13 @@ void Tick(int symbolIndex, string symbol)
    if(riskBase == Balance)
      {
       initialLots = NormalizeDouble((balance/minMargin)*lotStep/balance*riskFactor,lotPrecision);
-      targetProfit = balance/minMargin/lotStep/balance*profitFactor;
+      targetProfit = balance/(balance/pow(10, StringLen((string)(int)balance))*balance)/minMargin/initialLots*profitFactor;
      }
 
    if(riskBase == Equity)
      {
       initialLots = NormalizeDouble((equity/minMargin)*lotStep/equity*riskFactor,lotPrecision);
-      targetProfit = equity/minMargin/lotStep/equity*profitFactor;
+      targetProfit = equity/(equity/pow(10, StringLen((string)(int)equity))*equity)/minMargin/initialLots*profitFactor;
      }
 
    if(riskType == Fixed)
