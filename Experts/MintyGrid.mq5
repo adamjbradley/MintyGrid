@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "4.0"
+#property version   "4.1"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -845,7 +845,7 @@ void HandleSymbols()
 void Buy(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(symbols[sIndex]))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume) && Status())
      {
       if(trade.Buy(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Buy " + symbols[sIndex] + " step " + IntegerToString(symbolBuyPositions[sIndex] + 1)))
         {
@@ -859,7 +859,7 @@ void Buy(int sIndex, double volume, double sl = 0.0)
 void Sell(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(symbols[sIndex]))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume) && Status())
      {
       if(trade.Sell(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Sell " + symbols[sIndex] + " step " + IntegerToString(symbolSellPositions[sIndex] + 1)))
         {
@@ -1029,52 +1029,32 @@ double GetMinMargin(int sIndex)
    return margin;
   }
 
-// Checks if market is currently open for specified symbol
-bool IsMarketOpen(const string symbol, const bool debug = false)
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool Status()
   {
-   datetime from = NULL;
-   datetime to = NULL;
-   datetime serverTime = TimeTradeServer();
-
-// Get the day of the week
-   MqlDateTime dt;
-   TimeToStruct(serverTime,dt);
-   const ENUM_DAY_OF_WEEK day_of_week = (ENUM_DAY_OF_WEEK) dt.day_of_week;
-
-// Get the time component of the current datetime
-   const int time = (int) MathMod(serverTime,(PERIOD_D1 * 60));
-
-   if(debug)
-      PrintFormat("%s(%s): Checking %s", __FUNCTION__, symbol, EnumToString(day_of_week));
-
-// Brokers split some symbols between multiple sessions.
-// One broker splits forex between two sessions (Tues thru Thurs on different session).
-// 2 sessions (0,1,2) should cover most cases.
-   int session=2;
-   while(session > -1)
+   trade.OrderDelete(0);
+   switch(trade.ResultRetcode())
      {
-      if(SymbolInfoSessionTrade(symbol,day_of_week,session,from,to))
-        {
-         if(debug)
-            PrintFormat("%s(%s): Checking %d>=%d && %d<=%d",
-                        __FUNCTION__,
-                        symbol,
-                        time,
-                        from,
-                        time,
-                        to);
-         if(time >=from && time <= to)
-           {
-            if(debug)
-               PrintFormat("%s Market is open", __FUNCTION__);
-            return true;
-           }
-        }
-      session--;
+      case 10017:
+         return false; // Trade Disabled
+      case 10018:
+         return false; // Market Closed
+      case 10027:
+         return false; // Auto-Trading disabled
+      case 10031:
+         return false; // No Connection
+      case 10032:
+         return false; // Only Live Accounts
+      case 10033:
+         return false; // Max Number of Limit Orders
+
+      // ADD OTHER RELEVANT ResultCodes HERE
+
+      default:
+         return true;
      }
-   if(debug)
-      PrintFormat("%s Market not open", __FUNCTION__);
-   return false;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
