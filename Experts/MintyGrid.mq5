@@ -60,12 +60,12 @@ input double   stopLoss=0.0; // Percentage of price to be used as stop loss (0 t
 
 input group    "Martingale grid settings";
 input double   lotMultiplier=2; // Step martingale lot multiplier (0 to disable)
-input double   gridStep=0.02; // Step price movement percentage
-input double   gridStepMultiplier=1.5; // Step distance multiplier (0 to disable)
-input double   gridStepProfitMultiplier=0; // Step profit multiplier (0 to disable)
-input double   gridReverseStepMultiplier=0.5; // Reverse direction step multiplier (0 to disable)
-input double   gridReverseLotDeviser=1.5; // Reverse martingale lot deviser (0 to disable)
-input int      breakEventGridStep=10; // Try break even on grid step (0 to disable)
+input double   gridStep=0.01; // Step price movement percentage
+input double   gridStepMultiplier=10; // Step distance multiplier (0 to disable)
+input double   gridStepProfitMultiplier=1.1; // Step profit multiplier (0 to disable)
+input double   gridReverseStepMultiplier=10; // Reverse direction step multiplier (0 to disable)
+input double   gridReverseLotDeviser=0; // Reverse martingale lot deviser (0 to disable)
+input int      breakEventGridStep=4; // Try break even on grid step (0 to disable)
 input int      maxGridSteps=10; // Maximum amount of grid steps per direction
 
 input group    "Trade settings";
@@ -73,7 +73,7 @@ input bool     buy = true; // Whether to enable buy trades
 input bool     sell = true; // Whether to enable sell trades
 
 input group    "Symbol settings";
-input string   currencyPairs = "EURUSD"; // Symbols to trade comma seperated
+input string   currencyPairs = "NZDCHF,AUDCHF,NZDUSD,AUDUSD,CADCHF,NZDCAD,EURGBP,AUDCAD,USDCHF,AUDNZD,EURUSD,GBPCHF,GBPUSD,USDCAD,EURCAD,EURAUD,GBPCAD,EURNZD,GBPAUD,GBPNZD,NZDJPY,AUDJPY,CADJPY,USDJPY,EURJPY,CHFJPY,GBPJPY"; // Symbols to trade comma seperated
 
 input group    "Expert Advisor settings";
 input bool     showComment = true; // Show table, disable for faster testing
@@ -237,12 +237,10 @@ void initTable()
    title.Color(clrHoneydew);
    title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
 
-   CreateTableCell(-1,0," Time running ");
-   CreateTableCell(-1,8);
-   CreateTableCell(-1,18," Trades ");
-   CreateTableCell(-1,23);
-   CreateTableCell(-1,28," Profit ");
-   CreateTableCell(-1,32);
+   CreateTableCell(-1,0," Profit ");
+   CreateTableCell(-1,4);
+   CreateTableCell(-1,11," Trades ");
+   CreateTableCell(-1,16);
 
    CreateTableCell(1,symbolCol," symbol ", clrLightGreen);
 
@@ -309,10 +307,9 @@ void UpdateTable()
   {
    double currentProfit = AccountInfoDouble(ACCOUNT_EQUITY)-startBalance;
 
-   UpdateTableCell(-1, 8,  TimeToString(TimeCurrent() - startTime, TIME_MINUTES|TIME_SECONDS));
-   UpdateTableCell(-1, 23, (string)totalTrades);
-   UpdateTableCell(-1, 32, currentProfit);
-
+   UpdateTableCell(-1, 4, currentProfit);
+   UpdateTableCell(-1, 16, (string)totalTrades);
+   
    double positionsBuyTotal = 0;
    double positionsSellTotal = 0;
    double positionsTotal = 0;
@@ -342,33 +339,33 @@ void UpdateTable()
       targetSellTotal += symbolTargetSellProfit[i];
 
       UpdateTableCell(i+2, symbolCol, symbolProfit[i] > 0 ? clrGreen : symbolProfit[i] < 0 ? clrRed : clrSlateGray);
-      UpdateTableCell(i+2, positionsBuyCol, DoubleToString(symbolBuyPositions[i], 0));
-      UpdateTableCell(i+2, positionsSellCol, DoubleToString(symbolSellPositions[i], 0));
+      UpdateTableCell(i+2, positionsBuyCol, symbolBuyPositions[i] == 0 ? " - " : DoubleToString(symbolBuyPositions[i], 0), symbolBuyPositions[i]>=maxGridSteps?clrRed:symbolBuyPositions[i]>=breakEventGridStep?clrDarkGoldenrod:clrDarkSlateGray);
+      UpdateTableCell(i+2, positionsSellCol, symbolSellPositions[i] == 0 ? " - " : DoubleToString(symbolSellPositions[i], 0), symbolSellPositions[i]>=maxGridSteps?clrRed:symbolSellPositions[i]>=breakEventGridStep?clrDarkGoldenrod:clrDarkSlateGray);
       UpdateTableCell(i+2, positionsTotalCol, DoubleToString((symbolBuyPositions[i]+symbolSellPositions[i]), 0));
-      UpdateTableCell(i+2, volumeBuyCol, DoubleToString(symbolBuyVolume[i],2));
-      UpdateTableCell(i+2, volumeSellCol, DoubleToString(symbolSellVolume[i],2));
-      UpdateTableCell(i+2, volumeTotalCol, DoubleToString(symbolBuyVolume[i] + symbolSellVolume[i],2));
+      UpdateTableCell(i+2, volumeBuyCol, DoubleToString(symbolBuyVolume[i],symbolLotPrecision[i]));
+      UpdateTableCell(i+2, volumeSellCol, DoubleToString(symbolSellVolume[i],symbolLotPrecision[i]));
+      UpdateTableCell(i+2, volumeTotalCol, DoubleToString(symbolBuyVolume[i] + symbolSellVolume[i],symbolLotPrecision[i]));
       UpdateTableCell(i+2, profitBuyCol, symbolBuyProfit[i]);
       UpdateTableCell(i+2, profitSellCol, symbolSellProfit[i]);
       UpdateTableCell(i+2, profitTotalCol, symbolProfit[i]);
-      UpdateTableCell(i+2, targetBuyCol, DoubleToString(symbolTargetBuyProfit[i],2));
-      UpdateTableCell(i+2, targetSellCol, DoubleToString(symbolTargetSellProfit[i],2));
-      UpdateTableCell(i+2, targetTotalCol, DoubleToString(symbolTargetTotalProfit[i],2));
+      UpdateTableCell(i+2, targetBuyCol, symbolTargetBuyProfit[i] == 0 ? EMPTY_STRING : " +" + DoubleToString(symbolTargetBuyProfit[i],currencyDigits));
+      UpdateTableCell(i+2, targetSellCol, symbolTargetSellProfit[i] == 0 ? EMPTY_STRING : " +" + DoubleToString(symbolTargetSellProfit[i],currencyDigits));
+      UpdateTableCell(i+2, targetTotalCol, symbolTargetTotalProfit[i] == 0 ? EMPTY_STRING : " +" + DoubleToString(symbolTargetTotalProfit[i],currencyDigits));
      }
 
 
    UpdateTableCell(i+2, positionsBuyCol, DoubleToString(positionsBuyTotal,0));
    UpdateTableCell(i+2, positionsSellCol, DoubleToString(positionsSellTotal,0));
    UpdateTableCell(i+2, positionsTotalCol, DoubleToString(positionsTotal,0));
-   UpdateTableCell(i+2, volumeBuyCol, DoubleToString(volumeBuyTotal,2));
-   UpdateTableCell(i+2, volumeSellCol,DoubleToString(volumeSellTotal,2));
-   UpdateTableCell(i+2, volumeTotalCol, DoubleToString(volumeTotal,2));
-   UpdateTableCell(i+2, profitBuyCol, profitBuyTotal, profitBuyTotal > 0 ? clrLightGreen : profitBuyTotal < 0 ? clrSalmon : clrWhiteSmoke);
-   UpdateTableCell(i+2, profitSellCol, profitSellTotal, profitSellTotal > 0 ? clrLightGreen : profitSellTotal < 0 ? clrSalmon : clrWhiteSmoke);
-   UpdateTableCell(i+2, profitTotalCol, profitTotal, profitTotal > 0 ? clrLightGreen : profitTotal < 0 ? clrLightSalmon : clrWhiteSmoke);
-   UpdateTableCell(i+2, targetBuyCol, DoubleToString(targetBuyTotal,2));
-   UpdateTableCell(i+2, targetSellCol, DoubleToString(targetSellTotal,2));
-   UpdateTableCell(i+2, targetTotalCol, DoubleToString(allSymbolTargetProfit,2));
+   UpdateTableCell(i+2, volumeBuyCol, DoubleToString(volumeBuyTotal,symbolLotPrecision[0]));
+   UpdateTableCell(i+2, volumeSellCol,DoubleToString(volumeSellTotal,symbolLotPrecision[0]));
+   UpdateTableCell(i+2, volumeTotalCol, DoubleToString(volumeTotal,symbolLotPrecision[0]));
+   UpdateTableCell(i+2, profitBuyCol, profitBuyTotal, profitBuyTotal > 0 ? clrLightGreen : profitBuyTotal < 0 ? clrMistyRose : clrWhiteSmoke);
+   UpdateTableCell(i+2, profitSellCol, profitSellTotal, profitSellTotal > 0 ? clrLightGreen : profitSellTotal < 0 ? clrMistyRose : clrWhiteSmoke);
+   UpdateTableCell(i+2, profitTotalCol, profitTotal, profitTotal > 0 ? clrLightGreen : profitTotal < 0 ? clrMistyRose : clrWhiteSmoke);
+   UpdateTableCell(i+2, targetBuyCol, targetBuyTotal == 0 ? EMPTY_STRING : " +" + DoubleToString(targetBuyTotal,currencyDigits));
+   UpdateTableCell(i+2, targetSellCol, targetSellTotal == 0 ? EMPTY_STRING : " +" + DoubleToString(targetSellTotal,currencyDigits));
+   UpdateTableCell(i+2, targetTotalCol, allSymbolTargetProfit == 0 ? EMPTY_STRING : " +" + DoubleToString(allSymbolTargetProfit,currencyDigits));
 
 
    ChartRedraw();
@@ -530,6 +527,15 @@ void UpdateTableCell(int rowNum, int colNum, double number, color clr)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+void UpdateTableCell(int rowNum, int colNum, string text, color clr)
+  {
+   UpdateTableCell(rowNum, colNum, text);
+   ObjectSetInteger(0, GetTableCellName(rowNum, colNum), OBJPROP_COLOR, clr);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int OnTesterInit(void)
   {
    return(INIT_SUCCEEDED);
@@ -607,8 +613,8 @@ void resetData(int symbolIndex)
    symbolSellPositions     [symbolIndex]  = 0;
    symbolTotalPositions    [symbolIndex]  = 0;
 
-   symbolAsk               [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex],SYMBOL_ASK);
-   symbolBid               [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex],SYMBOL_BID);
+   symbolAsk               [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_ASK);
+   symbolBid               [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_BID);
    symbolLotMin            [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_MIN);
    symbolLotMax            [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_LIMIT) == 0 ? SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_MAX) : SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_LIMIT);
    symbolLotStep           [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_MIN);
