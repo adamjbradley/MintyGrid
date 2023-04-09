@@ -53,13 +53,13 @@ enum RiskType   {Fixed, Dynamic};
 input group    "Risk settings";
 input RiskType riskType                   = Dynamic;  // Whether to use fixed or dynamic risk
 input RiskBase riskBase                   = Balance;   // Factor to base risk on when using dynamic risk
-input double   riskFactor                 = 1.00;     // Fixed lot size or dynamic risk factor
+input double   riskFactor                 = 100;     // Fixed lot size or dynamic risk factor
 input double   stopLoss                   = 0.00;     // Percentage of price to be used as stop loss (0 to disable)
 
 input group    "Profit settings";
 input RiskType profitType                 = Dynamic;  // Whether to use fixed or dynamic profit
 input RiskBase profitBase                 = Balance;   // Factor to base profit on when using dynamic profit
-input double   profitFactor               = 1.00;     // Fixed profit in deposit currency or dynamic profit factor
+input double   profitFactor               = 100;     // Fixed profit in deposit currency or dynamic profit factor
 input double   profitManyPairsDeviser     = 0.00;     // Factor to divide total profit by for all symbol profit
 
 input group    "Martingale grid settings";
@@ -68,7 +68,7 @@ input int      gridStepBreakEven          = 3;        // Try break even on grid 
 input double   gridStepMovement           = 0.03;     // Step price movement percentage
 input double   gridStepMultiplier         = 3.00;     // Step price movement multiplier (0 to disable)
 input double   gridReverseStepMultiplier  = 6.00;     // Reverse price movement multiplier (0 to disable)
-input double   gridStepProfitMultiplier   = 1.25;     // Step profit multiplier (0 to disable)
+input double   gridStepProfitMultiplier   = 0.30;     // Step profit multiplier (0 to disable)
 input double   gridStepLotMultiplier      = 2.00;     // Step martingale lot multiplier (0 to disable)
 input double   gridReverseLotDeviser      = 10.0;     // Reverse martingale lot deviser (0 to disable)
 
@@ -649,17 +649,17 @@ void CalculateRisk(int sIndex)
      {
       if(riskBase == Balance)
         {
-         symbolInitialLots [sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/balance)*symbolLotStep[sIndex]*(100*(leverage/100))*riskFactor,   sIndex);
+         symbolInitialLots [sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/balance)*symbolLotStep[sIndex]*riskFactor,   sIndex);
         }
 
       if(riskBase == Equity)
         {
-         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/equity)*symbolLotStep[sIndex]*(100*(leverage/100))*riskFactor,      sIndex);
+         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/equity)*symbolLotStep[sIndex]*riskFactor,      sIndex);
         }
 
       if(riskBase == Margin)
         {
-         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/freeMargin)*symbolLotStep[sIndex]*(100*(leverage/100))*riskFactor,  sIndex);
+         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/freeMargin)*symbolLotStep[sIndex]*riskFactor,  sIndex);
         }
      }
 
@@ -682,17 +682,17 @@ void CalculateProfit(int sIndex)
      {
       if(profitBase == Balance)
         {
-         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/balance)*(100*(leverage/100))*profitFactor;
+         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/balance)*(leverage)*profitFactor;
         }
 
       if(profitBase == Equity)
         {
-         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/equity)*(100*(leverage/100))*profitFactor;
+         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/equity)*(leverage)*profitFactor;
         }
 
       if(profitBase == Margin)
         {
-         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/freeMargin)*(100*(leverage/100))*profitFactor;
+         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/freeMargin)*(leverage)*profitFactor;
         }
      }
 
