@@ -40,89 +40,120 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "3.2"
+#property version   "3.4"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
 #include <ChartObjects\ChartObjectsShapes.mqh>
 #include <ChartObjects\ChartObjectsTxtControls.mqh>
 
-enum RiskBase {Balance, Equity};
+enum RiskBase {Balance, Equity, Margin};
 enum RiskType {Fixed, Dynamic};
 
-//--- Risk settings parameters
-input group "Risk settings";
-
+input group    "Risk settings";
 input RiskBase riskBase=Equity; // Factor to base risk on when using dynamic risk
 input RiskType riskType=Dynamic; // Whether to use fixed or dynamic risk
 input RiskType profitType=Dynamic; // Whether to use fixed or dynamic lot size
 input double   riskFactor=1; // Fixed lot size or dynamic risk factor
-input double   profitFactor=2; // Fixed profit in deposit currency or dynamic profit factor
+input double   profitFactor=0.5; // Fixed profit in deposit currency or dynamic profit factor
 input double   stopLoss=0.0; // Percentage of price to be used as stop loss (0 to disable)
 
-input group "Martingale grid settings";
+input group    "Martingale grid settings";
 input double   lotMultiplier=2; // Step martingale lot multiplier (0 to disable)
 input double   gridStep=0.02; // Step price movement percentage
-input double   gridStepMultiplier=5; // Step distance multiplier (0 to disable)
+input double   gridStepMultiplier=1.5; // Step distance multiplier (0 to disable)
 input double   gridStepProfitMultiplier=0; // Step profit multiplier (0 to disable)
-input double   gridReverseStepMultiplier=5; // Reverse direction step multiplier (0 to disable)
+input double   gridReverseStepMultiplier=0.5; // Reverse direction step multiplier (0 to disable)
 input double   gridReverseLotDeviser=1.5; // Reverse martingale lot deviser (0 to disable)
 input int      breakEventGridStep=10; // Try break even on grid step (0 to disable)
-input int      maxGridSteps=10; // Maximum amount of grid steps
+input int      maxGridSteps=10; // Maximum amount of grid steps per direction
 
-input group "Trade settings";
+input group    "Trade settings";
 input bool     buy = true; // Whether to enable buy trades
 input bool     sell = true; // Whether to enable sell trades
 
-input group "Symbol settings";
+input group    "Symbol settings";
 input string   currencyPairs = "EURUSD"; // Symbols to trade comma seperated
 
-input group "Expert Advisor settings";
-input bool     showComment = true; // Show comment, disable for faster testing
+input group    "Expert Advisor settings";
+input bool     showComment = true; // Show table, disable for faster testing
 input int      magicNumber = 901239; // Magic number
 
 CTrade trade;
 CPositionInfo position;
 COrderInfo order;
 
-CChartObjectRectLabel* rect = new CChartObjectRectLabel;
+CChartObjectLabel*      title             = new CChartObjectLabel;
+CChartObjectRectLabel*  tableRects[];
+CChartObjectLabel*      tableCells[];
 
-CChartObjectLabel* title = new CChartObjectLabel;
-CChartObjectLabel* profitLabel = new CChartObjectLabel;
-CChartObjectLabel* profitValue = new CChartObjectLabel;
-CChartObjectLabel* symbolCountLabel = new CChartObjectLabel;
-CChartObjectLabel* symbolCountValue = new CChartObjectLabel;
-CChartObjectLabel* allSymbolTargetProfitLabel = new CChartObjectLabel;
-CChartObjectLabel* allSymbolTargetProfitValue = new CChartObjectLabel;
+string   EMPTY_STRING            = " ------ ";
 
-CChartObjectRectLabel* tableRects[];
-CChartObjectLabel* tableCells[];
+int      rowHeight               = 24;
+int      width                   = 800;
+int      padding                 = 5;
+int      colSize                 = 72;
+int      col[72];
+int      symbolCol               = 0;
+int      positionsBuyCol         = 7;
+int      positionsSellCol        = 10;
+int      positionsTotalCol       = 13;
+int      volumeBuyCol            = 18;
+int      volumeSellCol           = 23;
+int      volumeTotalCol          = 28;
+int      profitBuyCol            = 34;
+int      profitSellCol           = 40;
+int      profitTotalCol          = 46;
+int      targetBuyCol            = 54;
+int      targetSellCol           = 60;
+int      targetTotalCol          = 66;
+datetime startTime;
+double   startBalance;
+string   symbols                 [];
+int      totalSymbols            = 0;
+int      totalTrades             = 0;
+int   currencyDigits;
+double   leverage;
+double   balance;
+double   equity;
+double   freeMargin;
+double   allSymbolTotalProfit    = 0;
+double   allSymbolTotalPositions = 0;
+double   allSymbolTotalLots      = 0;
+double   allSymbolTargetProfit   = 0;
+double   symbolInitialLots       [];
+double   symbolLowestBuyPrice    [];
+double   symbolHighestBuyLots    [];
+double   symbolHighestSellPrice  [];
+double   symbolHighestSellLots   [];
+double   symbolProfit            [];
+double   symbolBuyProfit         [];
+double   symbolSellProfit        [];
+double   symbolTargetProfit      [];
+double   symbolTargetBuyProfit   [];
+double   symbolTargetSellProfit  [];
+double   symbolTargetTotalProfit [];
+double   symbolBuyVolume         [];
+double   symbolSellVolume        [];
+double   symbolTotalVolume       [];
+int      symbolBuyPositions      [];
+int      symbolSellPositions     [];
+int      symbolTotalPositions    [];
+double   symbolAsk               [];
+double   symbolBid               [];
+double   symbolLotMin            [];
+double   symbolLotMax            [];
+double   symbolLotStep           [];
+double   symbolMinMargin         [];
+int      symbolLotPrecision      [];
+ulong    positionsToClose        [];
 
-
-string symbols[];
-int totalSymbols = 0;
-
-double symbolProfit[];
-double symbolBuyProfit[];
-double symbolSellProfit[];
-double symbolTargetBuyProfit[];
-double symbolTargetSellProfit[];
-double totalAllSymbolProfit;
-int symbolBuyPositions[];
-int symbolSellPositions[];
-
-ulong positionsToClose[];
-
-double startBalance;
 
 //+------------------------------------------------------------------+
-//| Expert initialization function                                   |
+//|                                                                  |
 //+------------------------------------------------------------------+
-int OnInit()
+void initSymbols()
   {
-//--- create timer
-   EventSetTimer(1000/30);
-
    int split=StringSplit(currencyPairs,",",symbols);
    totalSymbols=ArraySize(symbols);
 
@@ -136,227 +167,366 @@ int OnInit()
         }
      }
 
+   ArrayResize(symbolInitialLots, totalSymbols);
+   ArrayResize(symbolLowestBuyPrice, totalSymbols);
+   ArrayResize(symbolHighestBuyLots, totalSymbols);
+   ArrayResize(symbolHighestSellPrice, totalSymbols);
+   ArrayResize(symbolHighestSellLots, totalSymbols);
    ArrayResize(symbolProfit, totalSymbols);
+   ArrayResize(symbolTargetProfit, totalSymbols);
    ArrayResize(symbolBuyProfit, totalSymbols);
    ArrayResize(symbolSellProfit, totalSymbols);
    ArrayResize(symbolTargetBuyProfit, totalSymbols);
    ArrayResize(symbolTargetSellProfit, totalSymbols);
+   ArrayResize(symbolTargetTotalProfit, totalSymbols);
+   ArrayResize(symbolBuyVolume, totalSymbols);
+   ArrayResize(symbolSellVolume, totalSymbols);
+   ArrayResize(symbolTotalVolume, totalSymbols);
    ArrayResize(symbolBuyPositions, totalSymbols);
    ArrayResize(symbolSellPositions, totalSymbols);
+   ArrayResize(symbolTotalPositions, totalSymbols);
+   ArrayResize(symbolAsk, totalSymbols);
+   ArrayResize(symbolBid, totalSymbols);
+   ArrayResize(symbolLotMin, totalSymbols);
+   ArrayResize(symbolLotMax, totalSymbols);
+   ArrayResize(symbolLotStep, totalSymbols);
+   ArrayResize(symbolMinMargin, totalSymbols);
+   ArrayResize(symbolLotPrecision, totalSymbols);
+  }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void initTable()
+  {
+   for(int i = 0; i < colSize; i++)
+     {
+      col[i] = width/colSize*i;
+     }
+
+   CreateTableRow(-1,clrLightGreen);
+   CreateTableRow(0, clrForestGreen, 2);
+   CreateTableRow(totalSymbols+2, clrForestGreen);
+
+   title.Create(0,"titlebackground00",0,width-82,padding+1);
+   title.FontSize(9);
+   title.Color(clrForestGreen);
+   title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
+   title.Create(0,"titlebackground0",0,width-84,padding+1);
+   title.FontSize(9);
+   title.Color(clrForestGreen);
+   title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
+   title.Create(0,"titlebackground1",0,width-82,padding-1);
+   title.FontSize(9);
+   title.Color(clrForestGreen);
+   title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
+   title.Create(0,"titlebackground2",0,width-84,padding);
+   title.FontSize(9);
+   title.Color(clrForestGreen);
+   title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
+   title.Create(0,"titlebackground3",0,width-82,padding+1);
+   title.FontSize(9);
+   title.Color(clrForestGreen);
+   title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
+   title.Create(0,"titlebackground4",0,width-84,padding+1);
+   title.FontSize(9);
+   title.Color(clrForestGreen);
+   title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
+   title.Create(0,"title",0,width-83,padding);
+   title.FontSize(9);
+   title.Color(clrHoneydew);
+   title.SetString(OBJPROP_TEXT, "MintyGrid v3.4");
+
+   CreateTableCell(-1,0," Time running ");
+   CreateTableCell(-1,8);
+   CreateTableCell(-1,18," Trades ");
+   CreateTableCell(-1,23);
+   CreateTableCell(-1,28," Profit ");
+   CreateTableCell(-1,32);
+
+   CreateTableCell(1,symbolCol," symbol ", clrLightGreen);
+
+   CreateTableCell(0,positionsBuyCol,"positions", clrLightGreen);
+   CreateTableCell(1,positionsBuyCol,"buy", clrWhite);
+   CreateTableCell(1,positionsSellCol,"sell", clrWhite);
+   CreateTableCell(1,positionsTotalCol,"total", clrWhite);
+
+   CreateTableCell(0,volumeBuyCol,"volume", clrLightGreen);
+   CreateTableCell(1,volumeBuyCol,"buy", clrWhite);
+   CreateTableCell(1,volumeSellCol,"sell", clrWhite);
+   CreateTableCell(1,volumeTotalCol,"total", clrWhite);
+
+   CreateTableCell(0,profitBuyCol,"profit", clrLightGreen);
+   CreateTableCell(1,profitBuyCol,"buy", clrWhite);
+   CreateTableCell(1,profitSellCol,"sell", clrWhite);
+   CreateTableCell(1,profitTotalCol,"total", clrWhite);
+
+   CreateTableCell(0,targetBuyCol,"target profit", clrLightGreen);
+   CreateTableCell(1,targetBuyCol,"buy", clrWhite);
+   CreateTableCell(1,targetSellCol,"sell", clrWhite);
+   CreateTableCell(1,targetTotalCol,"total", clrWhite);
+
+   int i = 0;
+
+   for(i; i < (totalSymbols); i++)
+     {
+      CreateTableRow(i+2, (bool)(i%2)?clrLightGreen:clrPaleGreen);
+
+      CreateTableCell(i+2, symbolCol, " " + symbols[i]);
+      CreateTableCell(i+2, positionsBuyCol);
+      CreateTableCell(i+2, positionsSellCol);
+      CreateTableCell(i+2, positionsTotalCol);
+      CreateTableCell(i+2, volumeBuyCol);
+      CreateTableCell(i+2, volumeSellCol);
+      CreateTableCell(i+2, volumeTotalCol);
+      CreateTableCell(i+2, profitBuyCol);
+      CreateTableCell(i+2, profitSellCol);
+      CreateTableCell(i+2, profitTotalCol);
+      CreateTableCell(i+2, targetBuyCol);
+      CreateTableCell(i+2, targetSellCol);
+      CreateTableCell(i+2, targetTotalCol);
+     }
+
+   CreateTableCell(i+2, symbolCol," (" + (string)totalSymbols + ")", clrLightGreen);
+   CreateTableCell(i+2, positionsBuyCol, clrWhite);
+   CreateTableCell(i+2, positionsSellCol, clrWhite);
+   CreateTableCell(i+2, positionsTotalCol, clrWhite);
+   CreateTableCell(i+2, volumeBuyCol, clrWhite);
+   CreateTableCell(i+2, volumeSellCol, clrWhite);
+   CreateTableCell(i+2, volumeTotalCol, clrWhite);
+   CreateTableCell(i+2, profitBuyCol, clrWhite);
+   CreateTableCell(i+2, profitSellCol, clrWhite);
+   CreateTableCell(i+2, profitTotalCol, clrWhite);
+   CreateTableCell(i+2, targetBuyCol, clrWhite);
+   CreateTableCell(i+2, targetSellCol, clrWhite);
+   CreateTableCell(i+2, targetTotalCol, clrWhite);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateTable()
+  {
+   double currentProfit = AccountInfoDouble(ACCOUNT_EQUITY)-startBalance;
+
+   UpdateTableCell(-1, 8,  TimeToString(TimeCurrent() - startTime, TIME_MINUTES|TIME_SECONDS));
+   UpdateTableCell(-1, 23, (string)totalTrades);
+   UpdateTableCell(-1, 32, currentProfit);
+
+   double positionsBuyTotal = 0;
+   double positionsSellTotal = 0;
+   double positionsTotal = 0;
+   double volumeBuyTotal = 0;
+   double volumeSellTotal = 0;
+   double volumeTotal = 0;
+   double profitBuyTotal = 0;
+   double profitSellTotal = 0;
+   double profitTotal = 0;
+   double targetBuyTotal = 0;
+   double targetSellTotal = 0;
+
+   int i = 0;
+
+   for(i; i < totalSymbols; i++)
+     {
+      positionsBuyTotal += symbolBuyPositions[i];
+      positionsSellTotal += symbolSellPositions[i];
+      positionsTotal += symbolTotalPositions[i];
+      volumeBuyTotal += symbolBuyVolume[i];
+      volumeSellTotal += symbolSellVolume[i];
+      volumeTotal += symbolTotalVolume[i];
+      profitBuyTotal += symbolBuyProfit[i];
+      profitSellTotal += symbolSellProfit[i];
+      profitTotal += symbolProfit[i];
+      targetBuyTotal += symbolTargetBuyProfit[i];
+      targetSellTotal += symbolTargetSellProfit[i];
+
+      UpdateTableCell(i+2, symbolCol, symbolProfit[i] > 0 ? clrGreen : symbolProfit[i] < 0 ? clrRed : clrSlateGray);
+      UpdateTableCell(i+2, positionsBuyCol, DoubleToString(symbolBuyPositions[i], 0));
+      UpdateTableCell(i+2, positionsSellCol, DoubleToString(symbolSellPositions[i], 0));
+      UpdateTableCell(i+2, positionsTotalCol, DoubleToString((symbolBuyPositions[i]+symbolSellPositions[i]), 0));
+      UpdateTableCell(i+2, volumeBuyCol, DoubleToString(symbolBuyVolume[i],2));
+      UpdateTableCell(i+2, volumeSellCol, DoubleToString(symbolSellVolume[i],2));
+      UpdateTableCell(i+2, volumeTotalCol, DoubleToString(symbolBuyVolume[i] + symbolSellVolume[i],2));
+      UpdateTableCell(i+2, profitBuyCol, symbolBuyProfit[i]);
+      UpdateTableCell(i+2, profitSellCol, symbolSellProfit[i]);
+      UpdateTableCell(i+2, profitTotalCol, symbolProfit[i]);
+      UpdateTableCell(i+2, targetBuyCol, DoubleToString(symbolTargetBuyProfit[i],2));
+      UpdateTableCell(i+2, targetSellCol, DoubleToString(symbolTargetSellProfit[i],2));
+      UpdateTableCell(i+2, targetTotalCol, DoubleToString(symbolTargetTotalProfit[i],2));
+     }
+
+
+   UpdateTableCell(i+2, positionsBuyCol, DoubleToString(positionsBuyTotal,0));
+   UpdateTableCell(i+2, positionsSellCol, DoubleToString(positionsSellTotal,0));
+   UpdateTableCell(i+2, positionsTotalCol, DoubleToString(positionsTotal,0));
+   UpdateTableCell(i+2, volumeBuyCol, DoubleToString(volumeBuyTotal,2));
+   UpdateTableCell(i+2, volumeSellCol,DoubleToString(volumeSellTotal,2));
+   UpdateTableCell(i+2, volumeTotalCol, DoubleToString(volumeTotal,2));
+   UpdateTableCell(i+2, profitBuyCol, profitBuyTotal, profitBuyTotal > 0 ? clrLightGreen : profitBuyTotal < 0 ? clrSalmon : clrWhiteSmoke);
+   UpdateTableCell(i+2, profitSellCol, profitSellTotal, profitSellTotal > 0 ? clrLightGreen : profitSellTotal < 0 ? clrSalmon : clrWhiteSmoke);
+   UpdateTableCell(i+2, profitTotalCol, profitTotal, profitTotal > 0 ? clrLightGreen : profitTotal < 0 ? clrLightSalmon : clrWhiteSmoke);
+   UpdateTableCell(i+2, targetBuyCol, DoubleToString(targetBuyTotal,2));
+   UpdateTableCell(i+2, targetSellCol, DoubleToString(targetSellTotal,2));
+   UpdateTableCell(i+2, targetTotalCol, DoubleToString(allSymbolTargetProfit,2));
+
+
+   ChartRedraw();
+  }
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   if(MQLInfoInteger(MQL_TESTER))
+     {
+      EventSetTimer(300);
+     }
+   else
+     {
+      EventSetMillisecondTimer(1000/33);
+     }
+
+   startTime = TimeCurrent();
+   leverage = (int)AccountInfoInteger(ACCOUNT_LEVERAGE);
+   currencyDigits = (int)AccountInfoInteger(ACCOUNT_CURRENCY_DIGITS);
+   startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    trade.SetExpertMagicNumber(magicNumber);
    trade.LogLevel(LOG_LEVEL_NO);
 
-
-   startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   initSymbols();
 
    if(MQLInfoInteger(MQL_TESTER))
      {
       for(int i=0; i<totalSymbols; i++)
         {
-         CheckLoadHistory(symbols[i], _Period, 100000);
+         CheckLoadHistory(symbols[i], _Period, 1000);
         }
      }
 
-
    if(showComment)
      {
-
-      int rowHeight = 25;
-      int width = 640;
-      int col1 = (width/8*0)+5;
-      int col2 = (width/8*1)+5;
-      int col3 = (width/8*2)+5;
-      int col4 = (width/8*3)+5;
-      int col5 = (width/8*4)+5;
-      int col6 = (width/8*5)+5;
-      int col7 = (width/8*6)+5;
-      int col8 = (width/8*7)+5;
-
-      rect.Create(0, "rect", 0,0,0,width,(totalSymbols*20)+67);
-      rect.BackColor(clrPaleGreen);
-      rect.BorderType(BORDER_FLAT);
-
-      title.Create(0,"titlebackground00",0,width-82,6);
-      title.FontSize(9);
-      title.Color(clrWhite);
-      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
-      title.Create(0,"titlebackground0",0,width-84,6);
-      title.FontSize(9);
-      title.Color(clrWhite);
-      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
-      title.Create(0,"titlebackground1",0,width-82,4);
-      title.FontSize(9);
-      title.Color(clrWhite);
-      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
-      title.Create(0,"titlebackground2",0,width-84,5);
-      title.FontSize(9);
-      title.Color(clrWhite);
-      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
-      title.Create(0,"titlebackground3",0,width-82,6);
-      title.FontSize(9);
-      title.Color(clrWhite);
-      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
-      title.Create(0,"titlebackground4",0,width-84,6);
-      title.FontSize(9);
-      title.Color(clrWhite);
-      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
-      title.Create(0,"title",0,width-83,5);
-      title.FontSize(9);
-      title.Color(clrDarkSlateGray);
-      title.SetString(OBJPROP_TEXT, "MintyGrid v3.2");
-
-
-      symbolCountLabel.Create(0,"symbolCountLabel",0,col1,5);
-      symbolCountLabel.FontSize(9);
-      symbolCountLabel.Color(clrBlack);
-      symbolCountLabel.SetString(OBJPROP_TEXT, "Symbols:");
-      symbolCountValue.Create(0,"symbolCountValue",0,col2,5);
-      symbolCountValue.FontSize(9);
-      symbolCountValue.SetString(OBJPROP_TEXT, (string)totalSymbols);
-      symbolCountValue.Color(clrBlack);
-
-      ArrayResize(tableRects, ArraySize(tableRects)+8);
-
-      tableRects[0] = new CChartObjectRectLabel;
-      tableRects[0].Create(0, "allSymbolTargetProfitRect", 0,col1-2,(totalSymbols*20)+43,width-6,20);
-      tableRects[0].BackColor(clrForestGreen);
-
-      allSymbolTargetProfitLabel.Create(0,"allSymbolTargetProfitLabel",0,col7,(totalSymbols*20)+45);
-      allSymbolTargetProfitLabel.FontSize(8);
-      allSymbolTargetProfitLabel.Color(clrWhiteSmoke);
-      allSymbolTargetProfitLabel.SetString(OBJPROP_TEXT, "target all profit:");
-      allSymbolTargetProfitValue.Create(0,"allSymbolTargetProfitValue",0,col8,(totalSymbols*20)+45);
-      allSymbolTargetProfitValue.FontSize(8);
-      allSymbolTargetProfitValue.Color(clrWhiteSmoke);
-
-      profitLabel.Create(0,"profitLabel",0,col3,5);
-      profitLabel.FontSize(9);
-      profitLabel.Color(clrBlack);
-      profitLabel.SetString(OBJPROP_TEXT, "Profit:");
-      profitValue.Create(0,"profitValue",0,col4,5);
-      profitValue.FontSize(9);
-      profitValue.Color(clrBlack);
-
-      ArrayResize(tableCells, ArraySize(tableCells)+8);
-
-
-      tableRects[1] = new CChartObjectRectLabel;
-      tableRects[1].Create(0, "tableRects0", 0,col1-2,rowHeight-2,width-6,17);
-      tableRects[1].BackColor(clrForestGreen);
-
-      tableCells[0] = new CChartObjectLabel;
-      tableCells[0].Create(0,"tableCells0",0,col1,rowHeight);
-      tableCells[0].FontSize(7);
-      tableCells[0].Color(clrWhiteSmoke);
-      tableCells[0].SetString(OBJPROP_TEXT, " symbol");
-
-      tableCells[1] = new CChartObjectLabel;
-      tableCells[1].Create(0,"tableCells1",0,col2,rowHeight);
-      tableCells[1].FontSize(7);
-      tableCells[1].Color(clrWhiteSmoke);
-      tableCells[1].SetString(OBJPROP_TEXT, " buy positions");
-
-      tableCells[2] = new CChartObjectLabel;
-      tableCells[2].Create(0,"tableCells2",0,col3,rowHeight);
-      tableCells[2].FontSize(7);
-      tableCells[2].Color(clrWhiteSmoke);
-      tableCells[2].SetString(OBJPROP_TEXT, " sell positions");
-
-      tableCells[3] = new CChartObjectLabel;
-      tableCells[3].Create(0,"tableCells3",0,col4,rowHeight);
-      tableCells[3].FontSize(7);
-      tableCells[3].Color(clrWhiteSmoke);
-      tableCells[3].SetString(OBJPROP_TEXT, " profit");
-
-      tableCells[4] = new CChartObjectLabel;
-      tableCells[4].Create(0,"tableCells4",0,col5,rowHeight);
-      tableCells[4].FontSize(7);
-      tableCells[4].Color(clrWhiteSmoke);
-      tableCells[4].SetString(OBJPROP_TEXT, " buy profit");
-
-      tableCells[5] = new CChartObjectLabel;
-      tableCells[5].Create(0,"tableCells5",0,col6,rowHeight);
-      tableCells[5].FontSize(7);
-      tableCells[5].Color(clrWhiteSmoke);
-      tableCells[5].SetString(OBJPROP_TEXT, " sell profit");
-
-      tableCells[6] = new CChartObjectLabel;
-      tableCells[6].Create(0,"tableCells6",0,col7,rowHeight);
-      tableCells[6].FontSize(7);
-      tableCells[6].Color(clrWhiteSmoke);
-      tableCells[6].SetString(OBJPROP_TEXT, " target buy profit");
-
-      tableCells[7] = new CChartObjectLabel;
-      tableCells[7].Create(0,"tableCells7",0,col8,rowHeight);
-      tableCells[7].FontSize(7);
-      tableCells[7].Color(clrWhiteSmoke);
-      tableCells[7].SetString(OBJPROP_TEXT, " target sell profit");
-
-      for(int i = 0, o = ArraySize(tableCells)-1; i < (totalSymbols); i++)
-        {
-         ArrayResize(tableCells, ArraySize(tableCells)+8);
-         ArrayResize(tableRects, ArraySize(tableRects)+1);
-         rowHeight = (20*i)+43;
-
-
-         tableRects[i+1] = new CChartObjectRectLabel;
-         tableRects[i+1].Create(0, "tableRects" + i+1, 0,col1-2,rowHeight-3,width-6,23);
-         tableRects[i+1].BackColor(i%2?clrLightGreen:clrPaleGreen);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col1,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-         tableCells[o].SetString(OBJPROP_TEXT, " " + symbols[i]);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col2,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col3,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col4,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col5,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col6,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col7,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-
-         o++;
-         tableCells[o] = new CChartObjectLabel;
-         tableCells[o].Create(0,"tableCells" + (string)o,0,col8,rowHeight);
-         tableCells[o].FontSize(8);
-         tableCells[o].Color(clrBlack);
-        }
+      initTable();
      }
 
    return(INIT_SUCCEEDED);
   }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CreateTableRow(int rowNum, color clr = clrLightGreen, int rows = 1)
+  {
+   ArrayResize(tableRects, ArraySize(tableRects)+1);
+   int index = ArraySize(tableRects)-1;
+
+   tableRects[index] = new CChartObjectRectLabel;
+   tableRects[index].Create(0, "tableRects[" + (string)(index) + "]", 0,col[0],((rowNum+1)*rowHeight),width,(rowHeight*rows));
+   tableRects[index].BackColor(clr);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string GetTableCellName(int rowNum, int colNum)
+  {
+   return "tableCell[" + (string)rowNum + "][" + (string)colNum + "]";
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int CreateTableCell(int rowNum, int colNum)
+  {
+   return CreateTableCell(rowNum, colNum, EMPTY_STRING);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int CreateTableCell(int rowNum, int colNum, string text, color clr = clrDarkSlateGray, int fontSize = 9)
+  {
+   ArrayResize(tableCells, ArraySize(tableCells)+1);
+   int cellIndex = ArraySize(tableCells)-1;
+
+   tableCells[cellIndex] = new CChartObjectLabel;
+   tableCells[cellIndex].Create(0,GetTableCellName(rowNum, colNum), 0, col[colNum], 5+((rowNum+1)*rowHeight));
+   tableCells[cellIndex].FontSize(fontSize);
+   tableCells[cellIndex].Color(clr);
+
+   UpdateTableCell(rowNum, colNum, text);
+
+   return cellIndex;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int CreateTableCell(int rowNum, int colNum, color clr)
+  {
+   return CreateTableCell(rowNum, colNum, EMPTY_STRING, clr);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateTableCell(int cellIndex, string text, color clr = clrDarkSlateGray)
+  {
+   tableCells[cellIndex].SetString(OBJPROP_TEXT, text);
+   tableCells[cellIndex].Color(clr);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateTableCell(int rowNum, int colNum, string text)
+  {
+   if(StringLen(text) > 20)
+     {
+      text = StringSubstr(text, 0, 20);
+     }
+
+   if(StringLen(text) == 0)
+     {
+      text = EMPTY_STRING;
+     }
+
+   ObjectSetString(0, GetTableCellName(rowNum, colNum), OBJPROP_TEXT, " " + text);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateTableCell(int rowNum, int colNum, color clr)
+  {
+   ObjectSetInteger(0, GetTableCellName(rowNum, colNum), OBJPROP_COLOR, clr);
+
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateTableCell(int rowNum, int colNum, double number)
+  {
+   UpdateTableCell(rowNum, colNum, number, number > 0 ? clrGreen : number < 0 ? clrRed : clrSlateGray);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateTableCell(int rowNum, int colNum, double number, color clr)
+  {
+   string text = EMPTY_STRING;
+   if(number != INT_MAX && number != INT_MIN)
+     {
+      number = NormalizeDouble(number, currencyDigits);
+      text = " " + (number > 0 ? "+" + DoubleToString(number, currencyDigits) : number < 0 ? DoubleToString(number, currencyDigits) : EMPTY_STRING);
+     }
+   ObjectSetString(0, GetTableCellName(rowNum, colNum), OBJPROP_TEXT, text);
+   ObjectSetInteger(0, GetTableCellName(rowNum, colNum), OBJPROP_COLOR, clr);
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -379,47 +549,7 @@ void OnTimer()
   {
    if(showComment)
      {
-
-      double currentProfit = AccountInfoDouble(ACCOUNT_EQUITY)-startBalance;
-      profitValue.SetString(OBJPROP_TEXT, (currentProfit > 0 ? "+" : "") + DoubleToString(currentProfit, (int)AccountInfoInteger(ACCOUNT_CURRENCY_DIGITS)));
-      profitValue.Color(currentProfit > 0 ? clrGreen : currentProfit < 0 ? clrRed : clrSlateGray);
-
-
-      allSymbolTargetProfitValue.SetString(OBJPROP_TEXT, DoubleToString(totalAllSymbolProfit,2));
-
-      for(int i = 0, o = 7; i < (totalSymbols); i++)
-        {
-
-         o++;
-         o++;
-         tableCells[o].SetString(OBJPROP_TEXT, " " + (string)symbolBuyPositions[i]);
-
-         o++;
-         tableCells[o].SetString(OBJPROP_TEXT, " " + (string)symbolSellPositions[i]);
-
-         o++;
-         tableCells[o].SetString(OBJPROP_TEXT, " " + (symbolProfit[i] > 0 ? "+" : "") + DoubleToString(symbolProfit[i],2));
-         tableCells[o].Color(symbolProfit[i] > 0 ? clrGreen : symbolProfit[i] < 0 ? clrRed : clrSlateGray);
-
-         o++;
-         tableCells[o].SetString(OBJPROP_TEXT, " " + (symbolBuyProfit[i] > 0 ? "+" : "") + DoubleToString(symbolBuyProfit[i],2));
-         tableCells[o].Color(symbolBuyProfit[i] > 0 ? clrGreen : symbolBuyProfit[i] < 0 ? clrRed : clrSlateGray);
-
-         o++;
-         tableCells[o].SetString(OBJPROP_TEXT, " " + (symbolSellProfit[i] > 0 ? "+" : "") + DoubleToString(symbolSellProfit[i],2));
-         tableCells[o].Color(symbolSellProfit[i] > 0 ? clrGreen : symbolSellProfit[i] < 0 ? clrRed : clrSlateGray);
-
-         o++;
-         tableCells[o].SetString(OBJPROP_TEXT, " " + DoubleToString(symbolTargetSellProfit[i],2));
-
-         o++;
-         tableCells[o].SetString(OBJPROP_TEXT, " " + DoubleToString(symbolTargetBuyProfit[i],2));
-
-
-        }
-
-      //label.SetString(OBJPROP_TEXT, GetComment());
-      ChartRedraw();
+      UpdateTable();
      }
   }
 //+------------------------------------------------------------------+
@@ -433,194 +563,220 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Expert tick function                                             |
+//| Expert handleSymbol function                                             |
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+   updateBalance();
+
    for(int i = 0; i < totalSymbols; i++)
      {
-      Tick(i, symbols[i]);
+      handleSymbol(i);
      }
+
+   closeOpenPositions();
   }
 
-//---
+
 //+------------------------------------------------------------------+
-//| Expert tick function                                             |
+//|                                                                  |
 //+------------------------------------------------------------------+
-void Tick(int symbolIndex, string symbol)
+void resetData(int symbolIndex)
   {
-   double ask = SymbolInfoDouble(symbol,SYMBOL_ASK);
-   double bid = SymbolInfoDouble(symbol,SYMBOL_BID);
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double lotMin = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
-   double lotMax = SymbolInfoDouble(symbol,SYMBOL_VOLUME_LIMIT) == 0 ? SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX) : SymbolInfoDouble(symbol,SYMBOL_VOLUME_LIMIT);
-   double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
-   double leverage = (int)AccountInfoInteger(ACCOUNT_LEVERAGE);
-   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-   double minMargin = GetMinMargin(symbol,lotStep);
-   int lotPrecision = GetDoublePrecision(lotStep);
+   allSymbolTotalProfit                   = 0;
+   allSymbolTotalPositions                = 0;
+   allSymbolTotalLots                     = 0;
+   allSymbolTargetProfit                  = 0;
 
-   double initialLots = 0;
-   double targetProfit = 0;
+   symbolInitialLots       [symbolIndex]  = 0;
+   symbolLowestBuyPrice    [symbolIndex]  = 0;
+   symbolHighestBuyLots    [symbolIndex]  = 0;
+   symbolHighestSellPrice  [symbolIndex]  = 0;
+   symbolHighestSellLots   [symbolIndex]  = 0;
+   symbolProfit            [symbolIndex]  = 0;
+   symbolBuyProfit         [symbolIndex]  = 0;
+   symbolSellProfit        [symbolIndex]  = 0;
+   symbolTargetBuyProfit   [symbolIndex]  = 0;
+   symbolTargetSellProfit  [symbolIndex]  = 0;
+   symbolTargetTotalProfit [symbolIndex]  = 0;
+   symbolBuyVolume         [symbolIndex]  = 0;
+   symbolSellVolume        [symbolIndex]  = 0;
+   symbolTotalVolume       [symbolIndex]  = 0;
+   symbolBuyPositions      [symbolIndex]  = 0;
+   symbolSellPositions     [symbolIndex]  = 0;
+   symbolTotalPositions    [symbolIndex]  = 0;
 
-   if(riskBase == Balance)
-     {
-      initialLots = NormalizeDouble((balance/minMargin)*lotStep/balance*riskFactor,lotPrecision);
-      initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax/gridStepMultiplier/maxGridSteps ? lotMax/gridStepMultiplier/maxGridSteps : initialLots,lotPrecision);
-      targetProfit = (balance/100/minMargin)*profitFactor;
-     }
+   symbolAsk               [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex],SYMBOL_ASK);
+   symbolBid               [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex],SYMBOL_BID);
+   symbolLotMin            [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_MIN);
+   symbolLotMax            [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_LIMIT) == 0 ? SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_MAX) : SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_LIMIT);
+   symbolLotStep           [symbolIndex]  = SymbolInfoDouble(symbols[symbolIndex], SYMBOL_VOLUME_MIN);
+   symbolMinMargin         [symbolIndex]  = GetMinMargin(symbolIndex);
 
-   if(riskBase == Equity)
-     {
-      initialLots = NormalizeDouble((equity/minMargin)*lotStep/equity*riskFactor,lotPrecision);
-      initialLots = NormalizeDouble(initialLots < lotMin ? lotMin : initialLots > lotMax/gridStepMultiplier/maxGridSteps ? lotMax/gridStepMultiplier/maxGridSteps : initialLots,lotPrecision);
-      targetProfit = (equity/100/minMargin)*profitFactor;
-     }
+   symbolLotPrecision      [symbolIndex]  = GetDoublePrecision(symbolLotStep[symbolIndex]);
+  }
 
-   if(riskType == Fixed)
-     {
-      initialLots = riskFactor;
-     }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void updateBalance()
+  {
+   balance        = AccountInfoDouble(ACCOUNT_BALANCE);
+   equity         = AccountInfoDouble(ACCOUNT_EQUITY);
+   freeMargin     = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+  }
 
-   if(profitType == Fixed)
-     {
-      targetProfit = profitFactor;
-     }
-
-
-   int buyPositions = 0;
-   int sellPositions = 0;
-   int positions = 0;
-
-   double buyProfit = 0;
-   double sellProfit = 0;
-   double lowestBuyPrice = 0;
-   double highestBuyPrice = 0;
-   double highestBuyLots = 0;
-   double highestOverallBuyLots = 0;
-   double lowestSellPrice = 0;
-   double highestSellPrice = 0;
-   double highestSellLots = 0;
-   double highestOverallSellLots = 0;
-   double totalOverallLots = 0;
-   double buyLots = 0;
-   double sellLots = 0;
-   double profit = 0;
-   double allSymbolProfit = 0;
-   double totalAllSymbolPositions = 0;
-   double totalAllSymbolLots = 0;
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void filterPositions(int symbolIndex)
+  {
+   resetData(symbolIndex);
 
    for(int i = 0; i < PositionsTotal(); i++)
      {
       position.SelectByIndex(i);
       if(position.Magic() == magicNumber)
         {
+         allSymbolTotalPositions++;
+         allSymbolTotalLots += position.Volume();
+         allSymbolTotalProfit += position.Profit();
 
-         totalAllSymbolPositions++;
-         totalAllSymbolLots += position.Volume();
-         allSymbolProfit += position.Profit();
-         if(position.Symbol() == symbol)
+         if(position.Symbol() == symbols[symbolIndex])
            {
-            positions++;
-            profit += position.Profit();
-            totalOverallLots += position.Volume();
+            symbolTotalPositions[symbolIndex]++;
+            symbolProfit[symbolIndex] += position.Profit();
+            symbolTotalVolume[symbolIndex] += position.Volume();
 
             if(position.PositionType() == POSITION_TYPE_BUY)
               {
-               buyPositions++;
-               buyLots += position.Volume();
-               buyProfit += position.Profit();
-               if(lowestBuyPrice == 0 || position.PriceOpen() < lowestBuyPrice)
+               symbolBuyPositions[symbolIndex]++;
+               symbolBuyVolume[symbolIndex] += position.Volume();
+               symbolBuyProfit[symbolIndex] += position.Profit();
+
+               if(symbolLowestBuyPrice[symbolIndex] == 0 || position.PriceOpen() < symbolLowestBuyPrice[symbolIndex])
                  {
-                  lowestBuyPrice = position.PriceOpen();
+                  symbolLowestBuyPrice[symbolIndex] = position.PriceOpen();
                  }
-               if(highestBuyPrice == 0 || position.PriceOpen() > highestBuyPrice)
+               if(symbolHighestBuyLots[symbolIndex] == 0 || position.Volume() > symbolHighestBuyLots[symbolIndex])
                  {
-                  highestBuyPrice = position.PriceOpen();
-                 }
-               if(highestBuyLots == 0 || position.Volume() > highestBuyLots)
-                 {
-                  highestBuyLots = position.Volume();
+                  symbolHighestBuyLots[symbolIndex] = position.Volume();
                  }
               }
 
             if(position.PositionType() == POSITION_TYPE_SELL)
               {
-               sellPositions++;
-               sellLots += position.Volume();
-               sellProfit += position.Profit();
-               if(lowestSellPrice == 0 || position.PriceOpen() < lowestSellPrice)
+               symbolSellPositions[symbolIndex]++;
+               symbolSellVolume[symbolIndex] += position.Volume();
+               symbolSellProfit[symbolIndex] += position.Profit();
+
+               if(symbolHighestSellPrice[symbolIndex] == 0 || position.PriceOpen() > symbolHighestSellPrice[symbolIndex])
                  {
-                  lowestSellPrice = position.PriceOpen();
+                  symbolHighestSellPrice[symbolIndex] = position.PriceOpen();
                  }
-               if(highestSellPrice == 0 || position.PriceOpen() > highestSellPrice)
+               if(symbolHighestSellLots[symbolIndex] == 0 || position.Volume() > symbolHighestSellLots[symbolIndex])
                  {
-                  highestSellPrice = position.PriceOpen();
-                 }
-               if(highestSellLots == 0 || position.Volume() > highestSellLots)
-                 {
-                  highestSellLots = position.Volume();
+                  symbolHighestSellLots[symbolIndex] = position.Volume();
                  }
               }
            }
         }
      }
+  }
 
-
-   double targetSellProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit/positions*(sellPositions))*gridStepProfitMultiplier);
-   double targetBuyProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit/positions*(buyPositions))*gridStepProfitMultiplier);
-   double targetOverallProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit/positions*(positions))*gridStepProfitMultiplier);
-   double targetAllPositionProfit = profitType == Fixed ? targetProfit : targetProfit+((targetProfit*totalAllSymbolPositions/totalSymbols)*gridStepProfitMultiplier);
-
-   if(buyPositions >= breakEventGridStep && breakEventGridStep > 0)
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void calculateRisk(int symbolIndex)
+  {
+   if(riskBase == Balance)
      {
-      targetBuyProfit = 0;
+      symbolInitialLots [symbolIndex] = NormalizeVolume((balance/symbolMinMargin[symbolIndex])*symbolLotStep[symbolIndex]/balance*riskFactor, symbolIndex);
      }
 
-   if(sellPositions >= breakEventGridStep && breakEventGridStep > 0)
+   if(riskBase == Equity)
      {
-      targetSellProfit = 0;
+      symbolInitialLots[symbolIndex] = NormalizeVolume((equity/symbolMinMargin[symbolIndex])*symbolLotStep[symbolIndex]/equity*riskFactor, symbolIndex);
      }
 
-   if(sellProfit >= targetSellProfit)
+   if(riskBase == Margin)
+     {
+      symbolInitialLots[symbolIndex] = NormalizeVolume((freeMargin/symbolMinMargin[symbolIndex])*symbolLotStep[symbolIndex]/equity*riskFactor, symbolIndex);
+     }
+
+   symbolInitialLots[symbolIndex]    = NormalizeVolume(symbolInitialLots[symbolIndex] < symbolLotMin[symbolIndex] ? symbolLotMin[symbolIndex] : symbolInitialLots[symbolIndex] > symbolLotMax[symbolIndex]/gridStepMultiplier/maxGridSteps ? symbolLotMax[symbolIndex]/gridStepMultiplier/maxGridSteps : symbolInitialLots[symbolIndex], symbolIndex);
+   symbolTargetProfit[symbolIndex]   = symbolInitialLots[symbolIndex]/symbolLotStep[symbolIndex]*symbolMinMargin[symbolIndex]*profitFactor;
+
+   if(riskType == Fixed)
+     {
+      symbolInitialLots[symbolIndex] = riskFactor;
+     }
+
+   if(profitType == Fixed)
+     {
+      symbolTargetTotalProfit[symbolIndex] = profitFactor;
+     }
+
+   symbolTargetSellProfit[symbolIndex] = symbolSellPositions[symbolIndex] == 0 ? 0 : symbolTargetProfit[symbolIndex]+((symbolTargetProfit[symbolIndex]*(symbolSellVolume[symbolIndex]/symbolInitialLots[symbolIndex]))*gridStepProfitMultiplier);
+   symbolTargetBuyProfit[symbolIndex] = symbolBuyPositions[symbolIndex] == 0 ? 0 : symbolTargetProfit[symbolIndex]+((symbolTargetProfit[symbolIndex]*(symbolBuyVolume[symbolIndex]/symbolInitialLots[symbolIndex]))*gridStepProfitMultiplier);
+   symbolTargetTotalProfit[symbolIndex] = symbolTotalPositions[symbolIndex] == 0 ? 0 : symbolTargetProfit[symbolIndex]+((symbolTargetProfit[symbolIndex]*(symbolTotalVolume[symbolIndex]/symbolInitialLots[symbolIndex]))*gridStepProfitMultiplier);
+
+   allSymbolTargetProfit = totalSymbols == 0 ? 0 : symbolTargetProfit[symbolIndex]+((symbolTargetProfit[symbolIndex]*allSymbolTotalLots/symbolInitialLots[symbolIndex]/totalSymbols)*gridStepProfitMultiplier);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void takeProfit(int symbolIndex)
+  {
+   if(symbolBuyPositions[symbolIndex] >= breakEventGridStep && breakEventGridStep > 0)
+     {
+      symbolTargetBuyProfit[symbolIndex] = 0;
+     }
+
+   if(symbolSellPositions[symbolIndex] >= breakEventGridStep && breakEventGridStep > 0)
+     {
+      symbolTargetSellProfit[symbolIndex] = 0;
+     }
+
+   if(symbolSellProfit[symbolIndex] >= symbolTargetSellProfit[symbolIndex] && symbolSellProfit[symbolIndex] > 0)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
          position.SelectByIndex(i);
-         if(position.PositionType() == POSITION_TYPE_SELL && position.Symbol() == symbol && position.Magic() == magicNumber)
+         if(position.PositionType() == POSITION_TYPE_SELL && position.Symbol() == symbols[symbolIndex] && position.Magic() == magicNumber)
            {
             closePosition(position.Ticket());
            }
         }
      }
 
-   if(buyProfit >= targetBuyProfit)
+   if(symbolBuyProfit[symbolIndex] >= symbolTargetBuyProfit[symbolIndex] && symbolBuyProfit[symbolIndex] > 0)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
          position.SelectByIndex(i);
-         if(position.PositionType() == POSITION_TYPE_BUY && position.Symbol() == symbol && position.Magic() == magicNumber)
+         if(position.PositionType() == POSITION_TYPE_BUY && position.Symbol() == symbols[symbolIndex] && position.Magic() == magicNumber)
            {
             closePosition(position.Ticket());
            }
         }
      }
 
-   if(profit >= targetOverallProfit && (lowestSellPrice > highestBuyPrice))
+   if(symbolProfit[symbolIndex] >= symbolTargetTotalProfit[symbolIndex] && symbolProfit[symbolIndex] > 0)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
          position.SelectByIndex(i);
-         if(position.Symbol() == symbol && position.Magic() == magicNumber)
+         if(position.Symbol() == symbols[symbolIndex] && position.Magic() == magicNumber)
            {
             closePosition(position.Ticket());
            }
         }
      }
 
-
-   if(allSymbolProfit >= targetAllPositionProfit)
+   if(allSymbolTotalProfit >= allSymbolTargetProfit && allSymbolTotalProfit > 0)
      {
       for(int i = 0; i < PositionsTotal(); i++)
         {
@@ -631,112 +787,92 @@ void Tick(int symbolIndex, string symbol)
            }
         }
      }
-
-   if(lowestBuyPrice-((lowestBuyPrice/100*gridStep)*((buyPositions*gridStepMultiplier)+1)) >= ask && buyLots != 0 && buyPositions < maxGridSteps && !IsNetting())
-     {
-      double volume = buyPositions*initialLots*lotMultiplier > highestBuyLots*lotMultiplier ? buyPositions*initialLots*lotMultiplier : highestBuyLots*lotMultiplier;
-      if(lotMultiplier==0)
-        {
-         volume = initialLots;
-        }
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotPrecision);
-      volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotPrecision);
-
-      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && totalOverallLots+volume < lotMax)
-        {
-         double sl = stopLoss > 0 ? ask-(ask/100*stopLoss) : 0;
-         trade.Buy(volume,symbol,0,sl,0,"MintyGrid Buy " + symbol + " step " + IntegerToString(buyPositions + 1));
-        }
-
-     }
-
-   if(highestSellPrice+((highestSellPrice/100*gridStep)*((sellPositions*gridStepMultiplier)+1)) <= bid && sellLots != 0 && sellPositions < maxGridSteps && !IsNetting())
-     {
-      double volume = sellPositions*initialLots*lotMultiplier > highestSellLots*lotMultiplier ? sellPositions*initialLots*lotMultiplier : highestSellLots*lotMultiplier;
-      if(lotMultiplier==0)
-        {
-         volume = initialLots;
-        }
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotPrecision);
-      volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotPrecision);
-
-      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbol,volume) && totalOverallLots+volume < lotMax)
-        {
-         double sl = stopLoss > 0 ? bid+(bid/100*stopLoss) : 0;
-         trade.Sell(volume,symbol,0,sl,0,"MintyGrid Sell " + symbol + " step " + IntegerToString(sellPositions + 1));
-        }
-     }
-
-   if((buyPositions == 0) && (sellPositions == 0 || (ask < highestSellPrice-((highestSellPrice/100*gridStep)*((gridStepMultiplier*gridReverseStepMultiplier))) && sell)) && buy)
-     {
-      double highestLot = sellPositions == 0 ? 0 : gridReverseLotDeviser > 0 ? sellLots/sellPositions/gridReverseLotDeviser : 0;
-      double volume = highestLot < initialLots ? initialLots : highestLot;
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotPrecision);
-      volume =  NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotPrecision);
-
-      if(IsNetting())
-        {
-         volume = lotMin;
-        }
-
-      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbol,volume) && totalOverallLots+volume < lotMax)
-        {
-         double sl = stopLoss > 0 ? ask-(ask/100*stopLoss) : 0;
-         trade.Buy(volume,symbol,0,sl,0,"MintyGrid Buy " + symbol + " step " + IntegerToString(buyPositions + 1));
-        }
-     }
-
-   if((sellPositions == 0) && (buyPositions == 0 || (bid > lowestBuyPrice+((lowestBuyPrice/100*gridStep)*((gridStepMultiplier*gridReverseStepMultiplier))) && buy)) && sell)
-     {
-      double highestLot = buyPositions == 0 ? 0 : gridReverseLotDeviser > 0 ? buyLots/buyPositions/gridReverseLotDeviser : 0;
-      double volume = highestLot < initialLots ? initialLots : highestLot;
-      volume = NormalizeDouble(lotStep*MathRound(volume/lotStep),lotPrecision);
-      volume = NormalizeDouble(volume < lotMin ? lotMin : volume > lotMax ? lotMax : volume,lotPrecision);
-
-      if(IsNetting())
-        {
-         volume = lotMin;
-        }
-
-      if(CheckMoneyForTrade(symbol,volume,ORDER_TYPE_SELL) && totalOverallLots+volume < lotMax)
-        {
-         double sl = stopLoss > 0 ? bid+(bid/100*stopLoss) : 0;
-         trade.Sell(volume,symbol,0,sl,0,"MintyGrid Sell " + symbol + " step " + IntegerToString(sellPositions + 1));
-        }
-     }
-
-   closeOpenPositions();
-
-   if(showComment)
-     {
-      symbolProfit[symbolIndex] = profit;
-      symbolSellProfit[symbolIndex] = sellProfit;
-      symbolBuyProfit[symbolIndex] = buyProfit;
-      symbolBuyPositions[symbolIndex] = buyPositions;
-      symbolSellPositions[symbolIndex] = sellPositions;
-      symbolTargetBuyProfit[symbolIndex] = targetBuyProfit;
-      symbolTargetSellProfit[symbolIndex] = targetSellProfit;
-      totalAllSymbolProfit = targetAllPositionProfit;
-     }
   }
-
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-string WhiteSpaceToLength(string str, int length = 25)
+void tradeSymbol(int symbolIndex)
   {
-   int stringLength = StringLen(str);
-   string output = str;
-
-   for(int i = 0; i <= length-stringLength; i++)
+   if(symbolLowestBuyPrice[symbolIndex]-(((symbolAsk[symbolIndex]-symbolBid[symbolIndex])*100*gridStep)*((symbolBuyPositions[symbolIndex]*gridStepMultiplier)+1)) >= symbolAsk[symbolIndex] && symbolBuyVolume[symbolIndex] != 0 && symbolBuyPositions[symbolIndex] < maxGridSteps && !IsNetting())
      {
-      output += " ";
+      double volume = lotMultiplier == 0 ? symbolInitialLots[symbolIndex] : symbolBuyPositions[symbolIndex]*symbolInitialLots[symbolIndex]*lotMultiplier > symbolHighestBuyLots[symbolIndex]*lotMultiplier ? symbolBuyPositions[symbolIndex]*symbolInitialLots[symbolIndex]*lotMultiplier : symbolHighestBuyLots[symbolIndex]*lotMultiplier;
+      double sl = stopLoss > 0 ? symbolAsk[symbolIndex]-(symbolAsk[symbolIndex]/100*stopLoss) : 0;
+
+      Buy(symbolIndex,volume,sl);
      }
 
-   return output;
+   if(symbolHighestSellPrice[symbolIndex]+(((symbolAsk[symbolIndex]-symbolBid[symbolIndex])*100*gridStep)*((symbolSellPositions[symbolIndex]*gridStepMultiplier)+1)) <= symbolBid[symbolIndex] && symbolSellVolume[symbolIndex] != 0 && symbolSellPositions[symbolIndex] < maxGridSteps && !IsNetting())
+     {
+      double volume = lotMultiplier == 0 ? symbolInitialLots[symbolIndex] : symbolSellPositions[symbolIndex]*symbolInitialLots[symbolIndex]*lotMultiplier > symbolHighestSellLots[symbolIndex]*lotMultiplier ? symbolSellPositions[symbolIndex]*symbolInitialLots[symbolIndex]*lotMultiplier : symbolHighestSellLots[symbolIndex]*lotMultiplier;
+      double sl = stopLoss > 0 ? symbolBid[symbolIndex]+(symbolBid[symbolIndex]/100*stopLoss) : 0;
+
+      Sell(symbolIndex,volume,sl);
+     }
+
+   if((symbolBuyPositions[symbolIndex] == 0) && (symbolSellPositions[symbolIndex] == 0 || (symbolAsk[symbolIndex] < symbolHighestSellPrice[symbolIndex]-(((symbolAsk[symbolIndex]-symbolBid[symbolIndex])/100*gridStep)*((gridStepMultiplier*gridReverseStepMultiplier))) && sell)) && buy)
+     {
+      double highestLot = symbolSellPositions[symbolIndex] == 0 ? 0 : gridReverseLotDeviser > 0 ? symbolSellVolume[symbolIndex]/symbolSellPositions[symbolIndex]/gridReverseLotDeviser : 0;
+      double volume = IsNetting() ? symbolLotMin[symbolIndex] : highestLot < symbolInitialLots[symbolIndex] ? symbolInitialLots[symbolIndex] : highestLot;
+      double sl = stopLoss > 0 ? symbolAsk[symbolIndex]-(symbolAsk[symbolIndex]/100*stopLoss) : 0;
+
+      Buy(symbolIndex,volume,sl);
+     }
+
+   if((symbolSellPositions[symbolIndex] == 0) && (symbolBuyPositions[symbolIndex] == 0 || (symbolBid[symbolIndex] > symbolLowestBuyPrice[symbolIndex]+(((symbolAsk[symbolIndex]-symbolBid[symbolIndex])/100*gridStep)*((gridStepMultiplier*gridReverseStepMultiplier))) && buy)) && sell)
+     {
+      double highestLot = symbolBuyPositions[symbolIndex] == 0 ? 0 : gridReverseLotDeviser > 0 ? symbolBuyVolume[symbolIndex]/symbolBuyPositions[symbolIndex]/gridReverseLotDeviser : 0;
+      double volume = IsNetting() ? symbolLotMin[symbolIndex] : highestLot < symbolInitialLots[symbolIndex] ? symbolInitialLots[symbolIndex] : highestLot;
+      double sl = stopLoss > 0 ? symbolBid[symbolIndex]+(symbolBid[symbolIndex]/100*stopLoss) : 0;
+
+      Sell(symbolIndex,volume,sl);
+     }
   }
 
+//+------------------------------------------------------------------+
+//| Expert handleSymbol function                                     |
+//+------------------------------------------------------------------+
+void handleSymbol(int symbolIndex)
+  {
+   filterPositions(symbolIndex);
+   calculateRisk(symbolIndex);
+   takeProfit(symbolIndex);
+   tradeSymbol(symbolIndex);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void Buy(int symbolIndex, double volume, double sl = 0.0)
+  {
+   volume = NormalizeVolume(volume, symbolIndex);
+   if(CheckMoneyForTrade(symbols[symbolIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[symbolIndex],volume))
+     {
+      trade.Buy(volume, symbols[symbolIndex], 0, sl, 0, "MintyGrid Buy " + symbols[symbolIndex] + " step " + IntegerToString(symbolBuyPositions[symbolIndex] + 1));
+      totalTrades++;
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void Sell(int symbolIndex, double volume, double sl = 0.0)
+  {
+   volume = NormalizeVolume(volume, symbolIndex);
+   if(CheckMoneyForTrade(symbols[symbolIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[symbolIndex],volume))
+     {
+      trade.Sell(volume, symbols[symbolIndex], 0, sl, 0, "MintyGrid Sell " + symbols[symbolIndex] + " step " + IntegerToString(symbolSellPositions[symbolIndex] + 1));
+      totalTrades++;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double NormalizeVolume(double volume, int symbolIndex)
+  {
+   volume = NormalizeDouble(symbolLotStep[symbolIndex]*MathRound(volume/symbolLotStep[symbolIndex]),symbolLotPrecision[symbolIndex]);
+   return NormalizeDouble(volume < symbolLotMin[symbolIndex] ? symbolLotMin[symbolIndex] : volume > symbolLotMax[symbolIndex] ? symbolLotMax[symbolIndex] : volume,symbolLotPrecision[symbolIndex]);
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -879,18 +1015,21 @@ int GetDoublePrecision(double number)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double GetMinMargin(string symb,double lots)
+double GetMinMargin(int symbolIndex)
   {
 //--- Getting the opening price
    MqlTick mqltick;
-   SymbolInfoTick(symb,mqltick);
+   SymbolInfoTick(symbols[symbolIndex],mqltick);
    double price=mqltick.ask;
    double margin,free_margin=AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-   if(!OrderCalcMargin(ORDER_TYPE_BUY,symb,lots,price,margin))
+   if(!OrderCalcMargin(ORDER_TYPE_BUY,symbols[symbolIndex],symbolLotStep[symbolIndex],price,margin))
      {
       return -1;
      }
 
    return margin;
   }
+//+------------------------------------------------------------------+
+
+
 //+------------------------------------------------------------------+
