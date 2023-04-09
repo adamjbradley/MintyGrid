@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "4.1"
+#property version   "4.2"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -52,32 +52,32 @@ enum RiskType   {Fixed, Dynamic};
 
 input group    "Risk settings";
 input RiskType riskType                   = Dynamic;  // Whether to use fixed or dynamic risk
-input RiskBase riskBase                   = Balance;   // Factor to base risk on when using dynamic risk
-input double   riskFactor                 = 100;     // Fixed lot size or dynamic risk factor
+input RiskBase riskBase                   = Margin;   // Factor to base risk on when using dynamic risk
+input double   riskFactor                 = 10.0;     // Fixed lot size or dynamic risk factor
 input double   stopLoss                   = 0.00;     // Percentage of price to be used as stop loss (0 to disable)
 
 input group    "Profit settings";
 input RiskType profitType                 = Dynamic;  // Whether to use fixed or dynamic profit
-input RiskBase profitBase                 = Balance;   // Factor to base profit on when using dynamic profit
-input double   profitFactor               = 100;     // Fixed profit in deposit currency or dynamic profit factor
+input RiskBase profitBase                 = Margin;   // Factor to base profit on when using dynamic profit
+input double   profitFactor               = 10.0;     // Fixed profit in deposit currency or dynamic profit factor
 input double   profitManyPairsDeviser     = 0.00;     // Factor to divide total profit by for all symbol profit
 
 input group    "Martingale grid settings";
 input int      gridStepMax                = 10;       // Maximum amount of grid steps per direction
 input int      gridStepBreakEven          = 3;        // Try break even on grid step (0 to disable)
 input double   gridStepMovement           = 0.03;     // Step price movement percentage
-input double   gridStepMultiplier         = 3.00;     // Step price movement multiplier (0 to disable)
-input double   gridReverseStepMultiplier  = 6.00;     // Reverse price movement multiplier (0 to disable)
-input double   gridStepProfitMultiplier   = 0.30;     // Step profit multiplier (0 to disable)
+input double   gridStepMultiplier         = 3.33;     // Step price movement multiplier (0 to disable)
+input double   gridReverseStepMultiplier  = 1.00;     // Reverse price movement multiplier (0 to disable)
+input double   gridStepProfitMultiplier   = 1.00;     // Step profit multiplier (0 to disable)
 input double   gridStepLotMultiplier      = 2.00;     // Step martingale lot multiplier (0 to disable)
-input double   gridReverseLotDeviser      = 10.0;     // Reverse martingale lot deviser (0 to disable)
+input double   gridReverseLotDeviser      = 1.50;     // Reverse martingale lot deviser (0 to disable)
 
 input group    "Trade settings";
 input bool     buy                        = true;     // Whether to enable buy trades
 input bool     sell                       = true;     // Whether to enable sell trades
 
 input group    "Symbol settings";
-input string   currencyPairs              = "NZDCHF,AUDCHF,NZDUSD,AUDUSD,CADCHF,NZDCAD,EURGBP,AUDCAD,USDCHF,AUDNZD,EURUSD,GBPCHF,GBPUSD,USDCAD,EURCAD,EURAUD,GBPCAD,EURNZD,GBPAUD,GBPNZD,NZDJPY,AUDJPY,CADJPY,USDJPY,EURJPY,CHFJPY,GBPJPY"; // Symbols to trade comma seperated
+input string   currencyPairs              = "EURUSD,EURGBP,GBPUSD"; // Symbols to trade comma seperated
 
 input group    "Expert Advisor settings";
 input bool     showComment                = true;     // Show table, disable for faster testing
@@ -361,9 +361,9 @@ void UpdateTable()
       UpdateTableCell(i+2, profitSellCol,    symbolSellProfit[i]);
       UpdateTableCell(i+2, profitTotalCol,   symbolProfit[i]);
 
-      UpdateTableCell(i+2, targetBuyCol,     symbolTargetBuyProfit[i], symbolBuyPositions[i] == 0     ? clrSlateGray : symbolBuyPositions[i]   >= gridStepMax ? clrRed : symbolBuyPositions[i]  >= gridStepBreakEven ? clrDarkGoldenrod : clrDarkSlateGray);
-      UpdateTableCell(i+2, targetSellCol,    symbolTargetSellProfit[i], symbolSellPositions[i] == 0   ? clrSlateGray : symbolSellPositions[i]  >= gridStepMax ? clrRed : symbolSellPositions[i] >= gridStepBreakEven ? clrDarkGoldenrod : clrDarkSlateGray);
-      UpdateTableCell(i+2, targetTotalCol,   symbolTargetTotalProfit[i], symbolTargetTotalProfit[i] == 0 ? clrSlateGray : clrDarkSlateGray);
+      UpdateTableCell(i+2, targetBuyCol,     symbolTargetBuyProfit[i]   < 0 ? 0 : symbolTargetBuyProfit[i],   symbolBuyPositions[i]      == 0 ? clrSlateGray : symbolBuyPositions[i]   >= gridStepMax ? clrRed : symbolBuyPositions[i]  >= gridStepBreakEven ? clrDarkGoldenrod : clrDarkSlateGray);
+      UpdateTableCell(i+2, targetSellCol,    symbolTargetSellProfit[i]  < 0 ? 0 : symbolTargetSellProfit[i],  symbolSellPositions[i]     == 0 ? clrSlateGray : symbolSellPositions[i]  >= gridStepMax ? clrRed : symbolSellPositions[i] >= gridStepBreakEven ? clrDarkGoldenrod : clrDarkSlateGray);
+      UpdateTableCell(i+2, targetTotalCol,   symbolTargetTotalProfit[i] < 0 ? 0 : symbolTargetTotalProfit[i], symbolTargetTotalProfit[i] == 0 ? clrSlateGray : clrDarkSlateGray);
      }
 
 
@@ -379,9 +379,9 @@ void UpdateTable()
    UpdateTableCell(i+2, profitSellCol,     profitSellTotal,  profitSellTotal > 0 ? clrLightGreen : profitSellTotal < 0 ? clrMistyRose : clrWhiteSmoke);
    UpdateTableCell(i+2, profitTotalCol,    profitTotal,      profitTotal     > 0 ? clrLightGreen : profitTotal     < 0 ? clrMistyRose : clrWhiteSmoke);
 
-   UpdateTableCell(i+2, targetBuyCol,      targetBuyTotal,        clrMintCream);
-   UpdateTableCell(i+2, targetSellCol,     targetSellTotal,       clrMintCream);
-   UpdateTableCell(i+2, targetTotalCol,    allSymbolTargetProfit, clrMintCream);
+   UpdateTableCell(i+2, targetBuyCol,      targetBuyTotal < 0 ? 0 : targetBuyTotal,        clrMintCream);
+   UpdateTableCell(i+2, targetSellCol,     targetSellTotal < 0 ? 0 : targetSellTotal,       clrMintCream);
+   UpdateTableCell(i+2, targetTotalCol,    allSymbolTargetProfit < 0 ? 0 : allSymbolTargetProfit, clrMintCream);
 
    ChartRedraw();
   }
@@ -524,7 +524,7 @@ void UpdateTableCell(int rowNum, int colNum, double number, color clr, int maxLe
       text = DoubleToString(number, currencyDigits);
      }
 
-   ObjectSetString(0, GetTableCellName(rowNum, colNum), OBJPROP_TEXT, prefix + (negative ? " -" : "+") + StringSubstr(text, 0, maxLength));
+   ObjectSetString(0, GetTableCellName(rowNum, colNum), OBJPROP_TEXT, prefix + (negative ? " -" : number == 0 ? " ." : "+") + StringSubstr(text, 0, maxLength));
    ObjectSetInteger(0, GetTableCellName(rowNum, colNum), OBJPROP_COLOR, clr);
   }
 
@@ -653,17 +653,17 @@ void CalculateRisk(int sIndex)
      {
       if(riskBase == Balance)
         {
-         symbolInitialLots [sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/balance)*symbolLotStep[sIndex]*riskFactor,   sIndex);
+         symbolInitialLots [sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/balance)*symbolLotStep[sIndex]*riskFactor/totalSymbols,   sIndex);
         }
 
       if(riskBase == Equity)
         {
-         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/equity)*symbolLotStep[sIndex]*riskFactor,      sIndex);
+         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/equity)*symbolLotStep[sIndex]*riskFactor/totalSymbols,      sIndex);
         }
 
       if(riskBase == Margin)
         {
-         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/freeMargin)*symbolLotStep[sIndex]*riskFactor,  sIndex);
+         symbolInitialLots[sIndex] = NormalizeVolume((symbolMinMargin[sIndex]/freeMargin)*symbolLotStep[sIndex]*riskFactor/totalSymbols,  sIndex);
         }
      }
 
@@ -686,17 +686,17 @@ void CalculateProfit(int sIndex)
      {
       if(profitBase == Balance)
         {
-         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/balance)*(leverage)*profitFactor;
+         symbolTargetProfit[sIndex] = (leverage*(symbolMinMargin[sIndex]*symbolInitialLots[sIndex]/symbolLotMin[sIndex])/balance)*profitFactor;
         }
 
       if(profitBase == Equity)
         {
-         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/equity)*(leverage)*profitFactor;
+         symbolTargetProfit[sIndex] = (leverage*(symbolMinMargin[sIndex]*symbolInitialLots[sIndex]/symbolLotMin[sIndex])/equity)*profitFactor;
         }
 
       if(profitBase == Margin)
         {
-         symbolTargetProfit[sIndex] = (symbolMinMargin[sIndex]/freeMargin)*(leverage)*profitFactor;
+         symbolTargetProfit[sIndex] = (leverage*(symbolMinMargin[sIndex]*symbolInitialLots[sIndex]/symbolLotMin[sIndex])/freeMargin)*profitFactor;
         }
      }
 
@@ -705,8 +705,8 @@ void CalculateProfit(int sIndex)
       symbolTargetProfit[sIndex] = profitFactor;
      }
 
-   symbolTargetSellProfit[sIndex] = symbolSellPositions[sIndex]   == 0 ? 0 : (symbolTargetProfit[sIndex]*(symbolSellVolume[sIndex]  /symbolInitialLots[sIndex]))+((symbolTargetProfit[sIndex]*(symbolSellVolume[sIndex] /symbolInitialLots[sIndex]))*gridStepProfitMultiplier);
-   symbolTargetBuyProfit[sIndex] = symbolBuyPositions[sIndex]     == 0 ? 0 : (symbolTargetProfit[sIndex]*(symbolBuyVolume[sIndex]   /symbolInitialLots[sIndex]))+((symbolTargetProfit[sIndex]*(symbolBuyVolume[sIndex]  /symbolInitialLots[sIndex]))*gridStepProfitMultiplier);
+   symbolTargetSellProfit[sIndex] = symbolSellPositions[sIndex]   == 0 ? 0 : (symbolTargetProfit[sIndex]*(symbolSellVolume[sIndex]  /symbolInitialLots[sIndex]))+((symbolTargetProfit[sIndex]*(symbolSellVolume[sIndex] /symbolInitialLots[sIndex]))*(symbolTotalPositions[sIndex]*gridStepProfitMultiplier));
+   symbolTargetBuyProfit[sIndex] = symbolBuyPositions[sIndex]     == 0 ? 0 : (symbolTargetProfit[sIndex]*(symbolBuyVolume[sIndex]   /symbolInitialLots[sIndex]))+((symbolTargetProfit[sIndex]*(symbolBuyVolume[sIndex]  /symbolInitialLots[sIndex]))*(symbolTotalPositions[sIndex]*gridStepProfitMultiplier));
 
    if(symbolBuyPositions[sIndex] >= gridStepBreakEven && gridStepBreakEven > 0)
      {
@@ -721,6 +721,11 @@ void CalculateProfit(int sIndex)
    symbolTargetTotalProfit[sIndex] = symbolTargetSellProfit[sIndex] + symbolTargetBuyProfit[sIndex];
 
    allSymbolTargetProfit = totalSymbols == 0 ? 0 : (symbolTargetProfit[sIndex]*allSymbolTotalLots/symbolLotMin[sIndex]/(profitManyPairsDeviser == 0 ? 1 : profitManyPairsDeviser));
+   
+   symbolTargetSellProfit[sIndex]   = symbolTargetSellProfit[sIndex]    < 0 ? 0 : symbolTargetSellProfit[sIndex];
+   symbolTargetBuyProfit[sIndex]    = symbolTargetBuyProfit[sIndex]     < 0 ? 0 : symbolTargetBuyProfit[sIndex];
+   symbolTargetTotalProfit[sIndex]  = symbolTargetTotalProfit[sIndex]   < 0 ? 0 : symbolTargetTotalProfit[sIndex];
+   allSymbolTargetProfit            = allSymbolTargetProfit             < 0 ? 0 : allSymbolTargetProfit;
   }
 
 //+------------------------------------------------------------------+
