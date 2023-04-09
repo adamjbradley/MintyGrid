@@ -827,12 +827,12 @@ void TradeSymbol(int sIndex)
 void HandleSymbol(int sIndex)
   {
    SymbolInfoTick(symbols[sIndex],symbolCurrentTick[sIndex]);
-  
+
    FilterPositions(sIndex);
    CalculateRisk(sIndex);
    TakeProfit(sIndex);
    TradeSymbol(sIndex);
-   
+
    SymbolInfoTick(symbols[sIndex],symbolLastTick[sIndex]);
   }
 
@@ -853,7 +853,7 @@ void HandleSymbols()
 void Buy(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(sIndex))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen())
      {
       if(trade.Buy(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Buy " + symbols[sIndex] + " step " + IntegerToString(symbolBuyPositions[sIndex] + 1)))
         {
@@ -867,7 +867,7 @@ void Buy(int sIndex, double volume, double sl = 0.0)
 void Sell(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(sIndex))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen())
      {
       if(trade.Sell(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Sell " + symbols[sIndex] + " step " + IntegerToString(symbolSellPositions[sIndex] + 1)))
         {
@@ -1036,13 +1036,42 @@ double GetMinMargin(int sIndex)
 
    return margin;
   }
-
+ENUM_DAY_OF_WEEK day_of_week;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool IsMarketOpen(int sIndex)
+bool IsMarketOpen()
   {
-   return symbolLastTick[sIndex].time != symbolCurrentTick[sIndex].time;
+   datetime time_now = TimeCurrent();
+   MqlDateTime time;
+   TimeToStruct(time_now, time);
+   uint week_day_now = time.day_of_week;
+   uint seconds_now = (time.hour * 3600) + (time.min * 60) + time.sec;
+   if(week_day_now == 0)
+      day_of_week = SUNDAY;
+   if(week_day_now == 1)
+      day_of_week = MONDAY;
+   if(week_day_now == 2)
+      day_of_week = TUESDAY;
+   if(week_day_now == 3)
+      day_of_week = WEDNESDAY;
+   if(week_day_now == 4)
+      day_of_week = THURSDAY;
+   if(week_day_now == 5)
+      day_of_week = FRIDAY;
+   if(week_day_now == 6)
+      day_of_week = SATURDAY;
+   datetime from, to;
+   uint session = 0;
+   while(SymbolInfoSessionTrade(_Symbol, day_of_week, session, from, to))
+     {
+      session++;
+     }
+   uint trade_session_open_seconds = uint(from);
+   uint trade_session_close_seconds = uint(to);
+   if(trade_session_open_seconds < seconds_now && trade_session_close_seconds > seconds_now && week_day_now >= 1 && week_day_now <= 5)
+      return(true);
+   return(false);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1133,4 +1162,5 @@ void OnTick()
   {
    Mint();
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
