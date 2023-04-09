@@ -40,7 +40,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2021, Christopher Benjamin Hemmens"
 #property link      "chrishemmens@hotmail.com"
-#property version   "4.0"
+#property version   "4.1"
 
 #include <checkhistory.mqh>
 #include <Trade/Trade.mqh>
@@ -150,6 +150,8 @@ double   symbolLotMax            [];
 double   symbolLotStep           [];
 double   symbolMinMargin         [];
 int      symbolLotPrecision      [];
+MqlTick  symbolCurrentTick       [];
+MqlTick  symbolLastTick          [];
 ulong    positionsToClose        [];
 
 
@@ -196,6 +198,8 @@ void initSymbols()
    ArrayResize(symbolLotStep, totalSymbols);
    ArrayResize(symbolMinMargin, totalSymbols);
    ArrayResize(symbolLotPrecision, totalSymbols);
+   ArrayResize(symbolCurrentTick, totalSymbols);
+   ArrayResize(symbolLastTick, totalSymbols);
   }
 
 //+------------------------------------------------------------------+
@@ -215,31 +219,31 @@ void initTable()
    title.Create(0,"titlebackground00",0,width-82,padding+1);
    title.FontSize(9);
    title.Color(clrForestGreen);
-   title.SetString(OBJPROP_TEXT, "MintyGrid v4.0");
+   title.SetString(OBJPROP_TEXT, "MintyGrid v4.1");
    title.Create(0,"titlebackground0",0,width-84,padding+1);
    title.FontSize(9);
    title.Color(clrForestGreen);
-   title.SetString(OBJPROP_TEXT, "MintyGrid v4.0");
+   title.SetString(OBJPROP_TEXT, "MintyGrid v4.1");
    title.Create(0,"titlebackground1",0,width-82,padding-1);
    title.FontSize(9);
    title.Color(clrForestGreen);
-   title.SetString(OBJPROP_TEXT, "MintyGrid v4.0");
+   title.SetString(OBJPROP_TEXT, "MintyGrid v4.1");
    title.Create(0,"titlebackground2",0,width-84,padding);
    title.FontSize(9);
    title.Color(clrForestGreen);
-   title.SetString(OBJPROP_TEXT, "MintyGrid v4.0");
+   title.SetString(OBJPROP_TEXT, "MintyGrid v4.1");
    title.Create(0,"titlebackground3",0,width-82,padding+1);
    title.FontSize(9);
    title.Color(clrForestGreen);
-   title.SetString(OBJPROP_TEXT, "MintyGrid v4.0");
+   title.SetString(OBJPROP_TEXT, "MintyGrid v4.1");
    title.Create(0,"titlebackground4",0,width-84,padding+1);
    title.FontSize(9);
    title.Color(clrForestGreen);
-   title.SetString(OBJPROP_TEXT, "MintyGrid v4.0");
+   title.SetString(OBJPROP_TEXT, "MintyGrid v4.1");
    title.Create(0,"title",0,width-83,padding);
    title.FontSize(9);
    title.Color(clrHoneydew);
-   title.SetString(OBJPROP_TEXT, "MintyGrid v4.0");
+   title.SetString(OBJPROP_TEXT, "MintyGrid v4.1");
 
 
    CreateTableCell(-1,  0,                " Profit ");
@@ -822,10 +826,14 @@ void TradeSymbol(int sIndex)
 //+------------------------------------------------------------------+
 void HandleSymbol(int sIndex)
   {
+   SymbolInfoTick(symbols[sIndex],symbolCurrentTick[sIndex]);
+  
    FilterPositions(sIndex);
    CalculateRisk(sIndex);
    TakeProfit(sIndex);
    TradeSymbol(sIndex);
+   
+   SymbolInfoTick(symbols[sIndex],symbolLastTick[sIndex]);
   }
 
 //+------------------------------------------------------------------+
@@ -845,7 +853,7 @@ void HandleSymbols()
 void Buy(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(symbols[sIndex]))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(sIndex))
      {
       if(trade.Buy(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Buy " + symbols[sIndex] + " step " + IntegerToString(symbolBuyPositions[sIndex] + 1)))
         {
@@ -859,7 +867,7 @@ void Buy(int sIndex, double volume, double sl = 0.0)
 void Sell(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(symbols[sIndex]))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume) && IsMarketOpen(sIndex))
      {
       if(trade.Sell(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Sell " + symbols[sIndex] + " step " + IntegerToString(symbolSellPositions[sIndex] + 1)))
         {
@@ -1029,52 +1037,12 @@ double GetMinMargin(int sIndex)
    return margin;
   }
 
-// Checks if market is currently open for specified symbol
-bool IsMarketOpen(const string symbol, const bool debug = false)
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsMarketOpen(int sIndex)
   {
-   datetime from = NULL;
-   datetime to = NULL;
-   datetime serverTime = TimeTradeServer();
-
-// Get the day of the week
-   MqlDateTime dt;
-   TimeToStruct(serverTime,dt);
-   const ENUM_DAY_OF_WEEK day_of_week = (ENUM_DAY_OF_WEEK) dt.day_of_week;
-
-// Get the time component of the current datetime
-   const int time = (int) MathMod(serverTime,(PERIOD_D1 * 60));
-
-   if(debug)
-      PrintFormat("%s(%s): Checking %s", __FUNCTION__, symbol, EnumToString(day_of_week));
-
-// Brokers split some symbols between multiple sessions.
-// One broker splits forex between two sessions (Tues thru Thurs on different session).
-// 2 sessions (0,1,2) should cover most cases.
-   int session=2;
-   while(session > -1)
-     {
-      if(SymbolInfoSessionTrade(symbol,day_of_week,session,from,to))
-        {
-         if(debug)
-            PrintFormat("%s(%s): Checking %d>=%d && %d<=%d",
-                        __FUNCTION__,
-                        symbol,
-                        time,
-                        from,
-                        time,
-                        to);
-         if(time >=from && time <= to)
-           {
-            if(debug)
-               PrintFormat("%s Market is open", __FUNCTION__);
-            return true;
-           }
-        }
-      session--;
-     }
-   if(debug)
-      PrintFormat("%s Market not open", __FUNCTION__);
-   return false;
+   return symbolLastTick[sIndex].time != symbolCurrentTick[sIndex].time;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1156,6 +1124,8 @@ void OnDeinit(const int reason)
    EventKillTimer();
   }
 
+
+
 //+------------------------------------------------------------------+
 //| Expert HandleSymbol function                                     |
 //+------------------------------------------------------------------+
@@ -1163,5 +1133,4 @@ void OnTick()
   {
    Mint();
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
