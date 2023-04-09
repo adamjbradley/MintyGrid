@@ -845,7 +845,7 @@ void HandleSymbols()
 void Buy(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_BUY) && CheckVolumeValue(symbols[sIndex],volume) && TerminalInfoInteger(TERMINAL_CONNECTED))
      {
       if(trade.Buy(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Buy " + symbols[sIndex] + " step " + IntegerToString(symbolBuyPositions[sIndex] + 1)))
         {
@@ -859,7 +859,7 @@ void Buy(int sIndex, double volume, double sl = 0.0)
 void Sell(int sIndex, double volume, double sl = 0.0)
   {
    volume = NormalizeVolume(volume, sIndex);
-   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume))
+   if(CheckMoneyForTrade(symbols[sIndex],volume,ORDER_TYPE_SELL) && CheckVolumeValue(symbols[sIndex],volume) && TerminalInfoInteger(TERMINAL_CONNECTED))
      {
       if(trade.Sell(volume, symbols[sIndex], 0, sl, 0, "MintyGrid Sell " + symbols[sIndex] + " step " + IntegerToString(symbolSellPositions[sIndex] + 1)))
         {
@@ -1116,5 +1116,4 @@ void OnTick()
   {
    Mint();
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
